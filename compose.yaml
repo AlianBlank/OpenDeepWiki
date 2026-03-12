@@ -8,7 +8,7 @@
       - "8080:8080"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      test: ["CMD-SHELL", "cat /proc/1/status || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -60,6 +60,7 @@
       - WIKI_LANGUAGES=en,zh
     volumes:
       - ./data:/data
+      - ./src/OpenDeepWiki/prompts:/app/prompts:ro
 
   web:
     image: crpi-j9ha7sxwhatgtvj4.cn-shenzhen.personal.cr.aliyuncs.com/open-deepwiki/opendeepwiki-web
