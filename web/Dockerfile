@@ -4,7 +4,7 @@ WORKDIR /app
 
 # 安装依赖
 COPY package.json package-lock.json* ./
-RUN npm ci
+RUN npm install
 
 # 构建阶段
 FROM node:20-alpine AS builder
