@@ -273,7 +273,7 @@ public class RepositoryService(IContext context, IGitPlatformService gitPlatform
                     var isAdmin = userContext.User?.IsInRole("Admin") == true;
                     if (isAdmin)
                     {
-                        var deptRepos = await organizationService.GetDepartmentRepositoriesAsync(currentUserId, includeRestricted: true);
+                        var deptRepos = await organizationService.GetDepartmentRepositoriesAsync(currentUserId);
                         if (deptRepos.Any(r => r.RepositoryId == repository.Id))
                         {
                             allowed = true;
@@ -384,7 +384,7 @@ public class RepositoryService(IContext context, IGitPlatformService gitPlatform
                 var isAdmin = userContext.User?.IsInRole("Admin") == true;
                 if (isAdmin)
                 {
-                    var deptRepos = await organizationService.GetDepartmentRepositoriesAsync(currentUserId, includeRestricted: true);
+                    var deptRepos = await organizationService.GetDepartmentRepositoriesAsync(currentUserId);
                     if (deptRepos.Any(r => r.RepositoryId == repository.Id))
                     {
                         allowed = true;

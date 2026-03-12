@@ -10,50 +10,6 @@ import { LanguageTags } from "./language-tags";
 import type { RepositoryItemResponse } from "@/types/repository";
 import { GitBranch, XCircle, RefreshCw, Search, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useAuth } from "@/contexts/auth-context";
-import Link from "next/link";
-import { RepositorySubmitForm } from "@/components/repo/repository-submit-form";
-import {
-  Dialog,
-  DialogContent,
-} from "@/components/ui/dialog";
-
-/**
- * ADR: Unified Dashboard Repository Views
- *
- * Data Sources:
- * - Public repos: server-side paginated via fetchRepositoryList({ isPublic: true })
- * - Org (department) repos: client-side via getMyDepartmentRepositories()
- * - User-owned repos: server-side via fetchRepositoryList({ ownerId: user.id })
- *
- * Key Design Decisions:
- *
- * 1. DUAL DATA MODEL: Public API returns RepositoryItemResponse (no departmentName),
- *    while org API returns DepartmentRepository (no star/fork counts). We enrich
- *    public repos with departmentName from dept data for dual-icon display.
- *
- * 2. OWNERSHIP vs DEPARTMENT: GitHub App imports set IsDepartmentOwned=true on
- *    repositories. The backend excludes department-owned repos from ownerId
- *    queries, so the Mine view only shows truly personal repos without any
- *    client-side subtraction.
- *
- * 3. SUB-FILTERS: Each view has contextual sub-filters applied client-side:
- *    - Public: "publicOnly" fetches all + dept IDs, excludes overlap
- *    - Organization: "privateOnly" filters mapped dept repos by !isPublic
- *    - Mine: shows only user-submitted private repos (no sub-filters needed)
- *
- * 4. RACE CONDITION PROTECTION: loadIdRef counter ensures only the latest
- *    async request's results are applied. Stale responses are silently discarded.
- *
- * 5. STALE STATE CLEARING: effectiveView change clears repositories, languages,
- *    total, page, and subFilter to prevent flash of previous view's data.
- *
- * 6. PAGINATION: Public (default) uses server-side pagination (PAGE_SIZE=12).
- *    All other views and sub-filtered public use client-side pagination
- *    (fetch MAX_CLIENT_PAGE_SIZE=200, slice locally).
- */
-
-export type RepositoryView = "all" | "public" | "organization" | "mine";
 
 interface PublicRepositoryListProps {
   keyword: string;
@@ -95,185 +51,16 @@ export function PublicRepositoryList({ keyword, className }: PublicRepositoryLis
     try {
       setIsLoading(true);
       setError(null);
-
-      switch (effectiveView) {
-        case "public": {
-          // Fetch public repos + dept repos (for enrichment & sub-filter)
-          const pubDeptRepos = user
-            ? await getMyDepartmentRepositories().catch(() => [] as DepartmentRepository[])
-            : [];
-          if (loadId !== loadIdRef.current) return;
-
-          // Build dept lookup for enrichment
-          const pubDeptMap = new Map(pubDeptRepos.map(r => [r.repositoryId, r.departmentName]));
-
-          // Helper: enrich public repos with departmentName from dept data
-          const enrichPublicRepos = (items: RepositoryItemResponse[]) =>
-            items.map(r => pubDeptMap.has(r.id) ? { ...r, departmentName: pubDeptMap.get(r.id) } : r);
-
-          if (subFilter === "publicOnly" && user) {
-            // Client-side: fetch all public, exclude org repos
-            const pubAllResponse = await fetchRepositoryList({
-              isPublic: true,
-              sortBy: "status",
-              keyword: keyword || undefined,
-              pageSize: MAX_CLIENT_PAGE_SIZE,
-            });
-            if (loadId !== loadIdRef.current) return;
-            let filtered = pubAllResponse.items.filter(r => !pubDeptMap.has(r.id));
-            setViewLanguages(computeLanguageStats(filtered));
-            if (selectedLanguage) {
-              filtered = filtered.filter(r => r.primaryLanguage?.toLowerCase() === selectedLanguage.toLowerCase());
-            }
-            setTotal(filtered.length);
-            const pubStart = (page - 1) * PAGE_SIZE;
-            setRepositories(filtered.slice(pubStart, pubStart + PAGE_SIZE));
-          } else {
-            // Default: server-side paginated, enrich with dept info
-            setViewLanguages(null);
-            const response = await fetchRepositoryList({
-              isPublic: true,
-              sortBy: "status",
-              keyword: keyword || undefined,
-              language: selectedLanguage || undefined,
-              page,
-              pageSize: PAGE_SIZE,
-            });
-            if (loadId !== loadIdRef.current) return;
-            setRepositories(enrichPublicRepos(response.items));
-            setTotal(response.total);
-          }
-          break;
-        }
-
-        case "mine": {
-          if (!user) break;
-          const mineResponse = await fetchRepositoryList({
-            ownerId: user.id,
-            sortBy: "status",
-            keyword: keyword || undefined,
-            pageSize: MAX_CLIENT_PAGE_SIZE,
-          });
-
-          if (loadId !== loadIdRef.current) return;
-
-          let myRepos = mineResponse.items.filter(r => !r.isPublic);
-
-          setViewLanguages(computeLanguageStats(myRepos));
-          if (selectedLanguage) {
-            myRepos = myRepos.filter(r => r.primaryLanguage === selectedLanguage);
-          }
-          const mineTotal = myRepos.length;
-          const mineStart = (page - 1) * PAGE_SIZE;
-          setTotal(mineTotal);
-          setRepositories(myRepos.slice(mineStart, mineStart + PAGE_SIZE));
-          break;
-        }
-
-        case "organization": {
-          if (!user) break;
-          const orgDeptRepos = await getMyDepartmentRepositories(isAdmin);
-          if (loadId !== loadIdRef.current) return;
-          let mapped = orgDeptRepos.map(mapDepartmentRepoToItem);
-
-          setViewLanguages(computeLanguageStats(mapped));
-
-          // Client-side keyword filter
-          if (keyword) {
-            const kw = keyword.toLowerCase();
-            mapped = mapped.filter(
-              (r) =>
-                r.orgName.toLowerCase().includes(kw) ||
-                r.repoName.toLowerCase().includes(kw)
-            );
-          }
-          // Sub-filter: private only
-          if (subFilter === "privateOnly") {
-            mapped = mapped.filter((r) => !r.isPublic);
-          }
-          // Client-side language filter
-          if (selectedLanguage) {
-            mapped = mapped.filter(
-              (r) => r.primaryLanguage?.toLowerCase() === selectedLanguage.toLowerCase()
-            );
-          }
-
-          setTotal(mapped.length);
-          // Client-side pagination
-          const start = (page - 1) * PAGE_SIZE;
-          setRepositories(mapped.slice(start, start + PAGE_SIZE));
-          break;
-        }
-
-        case "all": {
-          // For unauthenticated users, same as public
-          if (!user) {
-            setViewLanguages(null);
-            const response = await fetchRepositoryList({
-              isPublic: true,
-              sortBy: "status",
-              keyword: keyword || undefined,
-              language: selectedLanguage || undefined,
-              page,
-              pageSize: PAGE_SIZE,
-            });
-            if (loadId !== loadIdRef.current) return;
-            setRepositories(response.items);
-            setTotal(response.total);
-            break;
-          }
-
-          // Fetch all sources in parallel
-          const [allPublicResponse, allDeptRepos, allOwnResponse] = await Promise.all([
-            fetchRepositoryList({
-              isPublic: true,
-              sortBy: "status",
-              keyword: keyword || undefined,
-              pageSize: MAX_CLIENT_PAGE_SIZE,
-            }),
-            getMyDepartmentRepositories(isAdmin).catch(() => [] as DepartmentRepository[]),
-            fetchRepositoryList({
-              ownerId: user.id,
-              sortBy: "status",
-              keyword: keyword || undefined,
-              pageSize: MAX_CLIENT_PAGE_SIZE,
-            }).catch(() => ({ items: [] as RepositoryItemResponse[], total: 0 })),
-          ]);
-
-          if (loadId !== loadIdRef.current) return;
-
-          // Merge: start with owned repos, then OVERWRITE with dept repos (they have departmentName), then add remaining public
-          const repoMap = new Map<string, RepositoryItemResponse>();
-          // First: owned repos (these may lack departmentName)
-          if (user) {
-            for (const r of allOwnResponse.items) repoMap.set(r.id, r);
-          }
-          // Second: dept repos OVERWRITE owned versions (to get correct departmentName + icon)
-          for (const dr of allDeptRepos) {
-            repoMap.set(dr.repositoryId, mapDepartmentRepoToItem(dr));
-          }
-          // Third: public repos (don't overwrite)
-          for (const r of allPublicResponse.items) {
-            if (!repoMap.has(r.id)) repoMap.set(r.id, r);
-          }
-
-          const allRepos = Array.from(repoMap.values());
-          setViewLanguages(computeLanguageStats(allRepos));
-
-          // Client-side language filter
-          let filteredRepos = allRepos;
-          if (selectedLanguage) {
-            filteredRepos = allRepos.filter(
-              (r) => r.primaryLanguage?.toLowerCase() === selectedLanguage.toLowerCase()
-            );
-          }
-          setTotal(filteredRepos.length);
-          // Client-side pagination
-          const allStart = (page - 1) * PAGE_SIZE;
-          setRepositories(filteredRepos.slice(allStart, allStart + PAGE_SIZE));
-          break;
-        }
-      }
+      const response = await fetchRepositoryList({
+        isPublic: true,
+        sortBy: "status",
+        keyword: keyword || undefined,
+        language: selectedLanguage || undefined,
+        page,
+        pageSize: PAGE_SIZE,
+      });
+      setRepositories(response.items);
+      setTotal(response.total);
     } catch (err) {
       setError("Failed to load repositories");
       console.error("Failed to fetch public repositories:", err);
@@ -302,70 +89,6 @@ export function PublicRepositoryList({ keyword, className }: PublicRepositoryLis
   const handleNextPage = () => {
     if (page < totalPages) setPage(page + 1);
   };
-
-  const handleViewChange = (newView: RepositoryView) => {
-    onViewChange?.(newView);
-  };
-
-  const handleSubmitSuccess = useCallback(() => {
-    setIsFormOpen(false);
-    loadRepositories();
-  }, [loadRepositories]);
-
-  // Dynamic section title
-  const sectionTitle = useMemo(() => {
-    switch (effectiveView) {
-      case "all":
-        return t("home.filter.allTitle");
-      case "public":
-        return t("home.publicRepository.title");
-      case "organization":
-        return t("home.filter.organizationTitle");
-      case "mine":
-        return t("home.repository.listTitle");
-    }
-  }, [effectiveView, t]);
-
-  // Dynamic empty state message
-  const emptyMessage = useMemo(() => {
-    switch (effectiveView) {
-      case "organization":
-        return t("home.filter.organizationEmpty");
-      case "mine":
-        return t("home.filter.myReposEmpty");
-      default:
-        return t("home.publicRepository.empty");
-    }
-  }, [effectiveView, t]);
-
-  // Filter tabs
-  const filterTabs: { key: RepositoryView; label: string; icon: React.ElementType; requireAuth: boolean }[] = [
-    { key: "all", label: t("home.filter.all"), icon: Layers, requireAuth: false },
-    { key: "public", label: t("home.filter.public"), icon: Globe, requireAuth: false },
-    { key: "organization", label: t("home.filter.organization"), icon: Building2, requireAuth: true },
-    { key: "mine", label: t("home.filter.myRepos"), icon: User, requireAuth: true },
-  ];
-
-  const visibleTabs = filterTabs.filter((tab) => !tab.requireAuth || user);
-
-  const subFilterOptions = useMemo(() => {
-    switch (effectiveView) {
-      case "public":
-        return user ? [
-          { key: null, label: t("home.filter.subAll") },
-          { key: "publicOnly", label: t("home.filter.publicOnly") },
-        ] : [];
-      case "organization":
-        return [
-          { key: null, label: t("home.filter.subAll") },
-          { key: "privateOnly", label: t("home.filter.privateOnly") },
-        ];
-      case "mine":
-        return [];
-      default:
-        return [];
-    }
-  }, [effectiveView, user, t]);
 
   if (isLoading && repositories.length === 0) {
     return (
@@ -444,13 +167,7 @@ export function PublicRepositoryList({ keyword, className }: PublicRepositoryLis
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {repositories.map((repo) => (
-              <PublicRepositoryCard
-                key={repo.id}
-                repository={repo}
-                {...((effectiveView === "organization" && isAdmin)
-                  ? { onShareToggle: () => loadRepositories(), toggleMode: "restrict" as const }
-                  : {})}
-              />
+              <PublicRepositoryCard key={repo.id} repository={repo} />
             ))}
           </div>
 
