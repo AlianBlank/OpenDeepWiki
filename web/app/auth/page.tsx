@@ -22,9 +22,9 @@ export default function AuthPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // Login form
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  // Login form (默认填充管理员账号)
+  const [email, setEmail] = useState("admin@admin.com");
+  const [password, setPassword] = useState("admin");
 
   // Register form
   const [name, setName] = useState("");
