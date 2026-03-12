@@ -559,8 +559,10 @@ public class RepositoryDocsService(IContext context, IGitPlatformService gitPlat
         string? parentZipPath)
     {
         // 获取当前层级的目录项
+        // 注意: 数据库中根目录的 ParentId 可能是空字符串 "" 而非 NULL
         var currentLevelItems = catalogs
-            .Where(c => c.ParentId == parentCatalogId)
+            .Where(c => (string.IsNullOrEmpty(c.ParentId) && string.IsNullOrEmpty(parentCatalogId)) ||
+                        c.ParentId == parentCatalogId)
             .OrderBy(c => c.Order)
             .ToList();
 
