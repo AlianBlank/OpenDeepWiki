@@ -40,8 +40,8 @@ public static class DbInitializer
 
     private static async Task InitializeAdminUserAsync(IContext context)
     {
-        const string adminEmail = "admin@routin.ai";
-        const string adminPassword = "Admin@123";
+        const string adminEmail = "admin@admin.com";
+        const string adminPassword = "admin";
 
         var exists = await context.Users.AnyAsync(u => u.Email == adminEmail && !u.IsDeleted);
         if (exists) return;
