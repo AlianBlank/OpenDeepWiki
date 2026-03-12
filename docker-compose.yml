@@ -1,4 +1,4 @@
-﻿services:
+services:
   opendeepwiki:
     image: crpi-j9ha7sxwhatgtvj4.cn-shenzhen.personal.cr.aliyuncs.com/open-deepwiki/opendeepwiki
     build:
@@ -30,33 +30,33 @@
       # 仓库存储目录
       - REPOSITORIES_DIRECTORY=/data
 
-      # AI 服务配置 (全局默认，用于 Chat 等功能)
-      - CHAT_API_KEY=your-chat-api-key
-      - ENDPOINT=https://api.openai.com/v1
+      # AI 服务配置 - MiniMax (全局默认)
+      - CHAT_API_KEY=${MINIMAX_API_KEY}
+      - ENDPOINT=https://api.minimaxi.com/v1
       - CHAT_REQUEST_TYPE=OpenAI
 
-      # Wiki 生成器配置 - 目录生成
-      - WIKI_CATALOG_MODEL=gpt-4o
-      - WIKI_CATALOG_ENDPOINT=https://api.openai.com/v1
-      - WIKI_CATALOG_API_KEY=your-catalog-api-key
+      # Wiki 生成器配置 - 目录生成 (MiniMax)
+      - WIKI_CATALOG_MODEL=MiniMax-M2.5
+      - WIKI_CATALOG_ENDPOINT=https://api.minimaxi.com/v1
+      - WIKI_CATALOG_API_KEY=${MINIMAX_API_KEY}
       - WIKI_CATALOG_REQUEST_TYPE=OpenAI
 
-      # Wiki 生成器配置 - 内容生成
-      - WIKI_CONTENT_MODEL=gpt-4o
-      - WIKI_CONTENT_ENDPOINT=https://api.openai.com/v1
-      - WIKI_CONTENT_API_KEY=your-content-api-key
+      # Wiki 生成器配置 - 内容生成 (MiniMax)
+      - WIKI_CONTENT_MODEL=MiniMax-M2.5
+      - WIKI_CONTENT_ENDPOINT=https://api.minimaxi.com/v1
+      - WIKI_CONTENT_API_KEY=${MINIMAX_API_KEY}
       - WIKI_CONTENT_REQUEST_TYPE=OpenAI
 
-      # Wiki 生成器配置 - 翻译 (可选，不配置则使用内容生成配置)
-      # - WIKI_TRANSLATION_MODEL=gpt-4o
-      # - WIKI_TRANSLATION_ENDPOINT=https://api.openai.com/v1
-      # - WIKI_TRANSLATION_API_KEY=your-translation-api-key
-      # - WIKI_TRANSLATION_REQUEST_TYPE=OpenAI
+      # Wiki 生成器配置 - 翻译 (可选，使用相同的 MiniMax 配置)
+      - WIKI_TRANSLATION_MODEL=MiniMax-M2.5
+      - WIKI_TRANSLATION_ENDPOINT=https://api.minimaxi.com/v1
+      - WIKI_TRANSLATION_API_KEY=${MINIMAX_API_KEY}
+      - WIKI_TRANSLATION_REQUEST_TYPE=OpenAI
 
-      # Wiki 生成并行数 (默认: 5)
+      # Wiki 生成并行数
       - WIKI_PARALLEL_COUNT=5
 
-      # 多语言支持 (逗号分隔，如: en,zh,ja,ko)
+      # 多语言支持 (逗号分隔)
       - WIKI_LANGUAGES=en,zh
     volumes:
       - ./data:/data
