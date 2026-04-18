@@ -506,11 +506,12 @@ public class RepositoryDocsService(IContext context, IGitPlatformService gitPlat
 
         foreach (var catalog in currentLevelItems)
         {
-            // 从 Path 中提取目录名（去掉数字前缀如 "1-overview" -> "overview"）
-            var pathName = GetCleanPathName(catalog.Path);
-            var displayName = IsAsciiOnly(catalog.Title) ? catalog.Title : pathName;
+            // 优先使用 Slug（VitePress 友好），否则用 NormalizeName 处理 Title
+            var displayName = !string.IsNullOrEmpty(catalog.Slug)
+                ? catalog.Slug
+                : NormalizeName(IsAsciiOnly(catalog.Title) ? catalog.Title : GetCleanPathName(catalog.Path));
 
-            var itemName = EnsureUniqueName(NormalizeName(displayName), usedNames);
+            var itemName = EnsureUniqueName(displayName, usedNames);
 
             // 如果有文档文件，创建文件条目
             if (catalog.DocFile != null)

@@ -15,6 +15,13 @@ public class CatalogItem : IEquatable<CatalogItem>
     public string Title { get; set; } = string.Empty;
 
     /// <summary>
+    /// VitePress-friendly directory name (lowercase, hyphen-separated, alphanumeric only).
+    /// Used as the actual directory name when exporting to VitePress format.
+    /// </summary>
+    [JsonPropertyName("slug")]
+    public string Slug { get; set; } = string.Empty;
+
+    /// <summary>
     /// URL-friendly path identifier, e.g., "1-overview", "2-architecture".
     /// </summary>
     [JsonPropertyName("path")]
@@ -41,6 +48,7 @@ public class CatalogItem : IEquatable<CatalogItem>
         if (ReferenceEquals(this, other)) return true;
 
         return Title == other.Title &&
+               Slug == other.Slug &&
                Path == other.Path &&
                Order == other.Order &&
                ChildrenEqual(Children, other.Children);

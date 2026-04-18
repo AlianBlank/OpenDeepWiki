@@ -152,7 +152,8 @@ ListFiles("src/**/*", maxResults=100)
   "items": [
     {
       "title": "English Title (only, no Chinese)",
-      "path": "lowercase-hyphen-path",
+      "slug": "english-title-lowercase-hyphen",
+      "path": "1-overview",
       "order": 0,
       "children": []
     }
@@ -160,8 +161,15 @@ ListFiles("src/**/*", maxResults=100)
 }
 ```
 
-**标题规则**: 仅使用英文，无中文字符。描述清晰。
-**路径规则**: 小写，用连字符分隔，无空格。子级使用点号: `parent.child`
+**标题规则 (title)**: 仅使用英文，无中文字符。描述清晰，用于人类阅读。
+
+**目录名规则 (slug)**: VitePress 目录名，必须满足：
+- 全部小写
+- 使用连字符分隔（不是下划线或空格）
+- 只包含英文和数字
+- 例如: "getting-started", "core-concepts", "api-reference"
+
+**路径规则 (path)**: 小写，用连字符分隔，无空格。子级使用点号: `parent.child`
 
 ---
 

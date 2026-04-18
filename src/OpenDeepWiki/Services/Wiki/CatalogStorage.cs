@@ -230,6 +230,7 @@ public class CatalogStorage
                 // Reuse existing record - update it instead of creating new
                 existingCatalog.ParentId = parentId;
                 existingCatalog.Title = item.Title;
+                existingCatalog.Slug = item.Slug;
                 existingCatalog.Order = item.Order;
                 existingCatalog.IsDeleted = false;
                 existingCatalog.UpdateTimestamp();
@@ -244,6 +245,7 @@ public class CatalogStorage
                     BranchLanguageId = _branchLanguageId,
                     ParentId = parentId,
                     Title = item.Title,
+                    Slug = item.Slug,
                     Path = item.Path,
                     Order = item.Order
                 };

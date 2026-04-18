@@ -29,6 +29,12 @@ public class DocCatalog : AggregateRoot<string>
     public string Title { get; set; } = string.Empty;
 
     /// <summary>
+    /// VitePress 友好的目录名（纯小写、无空格、英文数字连字符）
+    /// </summary>
+    [StringLength(500)]
+    public string Slug { get; set; } = string.Empty;
+
+    /// <summary>
     /// URL 友好的路径，如 "1-overview"
     /// </summary>
     [Required]
