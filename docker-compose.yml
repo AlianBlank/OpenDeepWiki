@@ -35,20 +35,20 @@ services:
       - ENDPOINT=https://api.minimaxi.com/v1
       - CHAT_REQUEST_TYPE=OpenAI
 
-      # Wiki 生成器配置 - 目录生成 (MiniMax)
-      - WIKI_CATALOG_MODEL=MiniMax-M2.5
+      # Wiki 生成器配置 - 目录生成 (MiniMax-M2 支持 Function Calling)
+      - WIKI_CATALOG_MODEL=MiniMax-M2
       - WIKI_CATALOG_ENDPOINT=https://api.minimaxi.com/v1
       - WIKI_CATALOG_API_KEY=${MINIMAX_API_KEY}
       - WIKI_CATALOG_REQUEST_TYPE=OpenAI
 
-      # Wiki 生成器配置 - 内容生成 (MiniMax)
-      - WIKI_CONTENT_MODEL=MiniMax-M2.5
+      # Wiki 生成器配置 - 内容生成 (MiniMax-M2 支持 Function Calling)
+      - WIKI_CONTENT_MODEL=MiniMax-M2
       - WIKI_CONTENT_ENDPOINT=https://api.minimaxi.com/v1
       - WIKI_CONTENT_API_KEY=${MINIMAX_API_KEY}
       - WIKI_CONTENT_REQUEST_TYPE=OpenAI
 
       # Wiki 生成器配置 - 翻译 (可选，使用相同的 MiniMax 配置)
-      - WIKI_TRANSLATION_MODEL=MiniMax-M2.5
+      - WIKI_TRANSLATION_MODEL=MiniMax-M2
       - WIKI_TRANSLATION_ENDPOINT=https://api.minimaxi.com/v1
       - WIKI_TRANSLATION_API_KEY=${MINIMAX_API_KEY}
       - WIKI_TRANSLATION_REQUEST_TYPE=OpenAI
