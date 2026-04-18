@@ -113,7 +113,7 @@ Before calling WriteCatalog, verify:
 {
   "items": [
     {
-      "title": "标题 (in {{language}})",
+      "title": "English Title (only, no Chinese)",
       "path": "lowercase-hyphen-path",
       "order": 0,
       "children": []
@@ -122,6 +122,7 @@ Before calling WriteCatalog, verify:
 }
 ```
 
+**Title rules**: Use English only, no Chinese characters. Be descriptive and clear.
 **Path rules**: lowercase, hyphens, no spaces. Children use dot notation: `parent.child`
 
 ---
