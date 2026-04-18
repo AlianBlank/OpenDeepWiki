@@ -451,9 +451,10 @@ public class RepositoryDocsService(IContext context, IGitPlatformService gitPlat
         }
 
         // 构建根级目录列表（用于生成 index.md）
+        // 使用与 AddFilesToArchive 相同的逻辑：优先使用 Title（如果是纯ASCII），否则使用 Path
         var rootDirectories = catalogs
             .Where(c => string.IsNullOrEmpty(c.ParentId))
-            .Select(c => GetCleanPathName(c.Path))
+            .Select(c => GetDisplayName(c.Title, c.Path))
             .Where(p => !string.IsNullOrEmpty(p))
             .Distinct()
             .ToList();
@@ -509,7 +510,7 @@ public class RepositoryDocsService(IContext context, IGitPlatformService gitPlat
             var pathName = GetCleanPathName(catalog.Path);
             var displayName = IsAsciiOnly(catalog.Title) ? catalog.Title : pathName;
 
-            var itemName = EnsureUniqueName(SanitizeZipNameSegment(displayName), usedNames);
+            var itemName = EnsureUniqueName(NormalizeName(displayName), usedNames);
 
             // 如果有文档文件，创建文件条目
             if (catalog.DocFile != null)
@@ -533,7 +534,7 @@ public class RepositoryDocsService(IContext context, IGitPlatformService gitPlat
 
                 // 为子目录生成 index.md
                 var siblingDirs = children
-                    .Select(c => GetCleanPathName(c.Path))
+                    .Select(c => GetDisplayName(c.Title, c.Path))
                     .Where(p => !string.IsNullOrEmpty(p))
                     .Distinct()
                     .ToList();
@@ -560,6 +561,9 @@ public class RepositoryDocsService(IContext context, IGitPlatformService gitPlat
         {
             return "untitled";
         }
+
+        // 转小写
+        value = value.ToLowerInvariant();
 
         var invalidChars = Path.GetInvalidFileNameChars();
         var sanitized = new string(value
@@ -595,6 +599,45 @@ public class RepositoryDocsService(IContext context, IGitPlatformService gitPlat
     {
         if (string.IsNullOrEmpty(value)) return false;
         return value.All(ch => ch < 128);
+    }
+
+    /// <summary>
+    /// 获取显示名称，与 AddFilesToArchive 逻辑保持一致
+    /// </summary>
+    private static string GetDisplayName(string? title, string path)
+    {
+        var pathName = GetCleanPathName(path);
+        var rawName = IsAsciiOnly(title) ? title : pathName;
+        return NormalizeName(rawName);
+    }
+
+    /// <summary>
+    /// 标准化名称：全小写、无空格、仅英文和数字
+    /// </summary>
+    private static string NormalizeName(string name)
+    {
+        if (string.IsNullOrEmpty(name)) return "untitled";
+
+        // 转小写，空格替换为连字符，移除非字母数字字符（保留连字符）
+        var normalized = name.ToLowerInvariant()
+            .Replace(' ', '-')
+            .Replace('_', '-');
+
+        // 移除非字母数字字符（仅保留 a-z, 0-9, 连字符）
+        normalized = new string(normalized
+            .Where(ch => char.IsLetterOrDigit(ch) || ch == '-')
+            .ToArray());
+
+        // 多个连字符合并为一个
+        while (normalized.Contains("--"))
+        {
+            normalized = normalized.Replace("--", "-");
+        }
+
+        // 去除首尾连字符
+        normalized = normalized.Trim('-');
+
+        return string.IsNullOrEmpty(normalized) ? "untitled" : normalized;
     }
 
     /// <summary>
