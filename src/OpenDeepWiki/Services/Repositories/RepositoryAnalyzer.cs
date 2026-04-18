@@ -303,6 +303,10 @@ public class RepositoryAnalyzer : IRepositoryAnalyzer
         var retryCount = 0;
         Exception? lastException = null;
 
+        // 优先使用 cnb.cool，失败时回退到 github.com
+        var gitUrl = workspace.GitUrl;
+        var fallbackGitUrl = GetFallbackGitUrl(gitUrl);
+
         while (retryCount < _options.MaxRetryAttempts)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -311,17 +315,17 @@ public class RepositoryAnalyzer : IRepositoryAnalyzer
             {
                 _logger.LogDebug(
                     "Clone attempt {Attempt}/{MaxAttempts}. GitUrl: {Url}",
-                    retryCount + 1, _options.MaxRetryAttempts, workspace.GitUrl);
+                    retryCount + 1, _options.MaxRetryAttempts, gitUrl);
 
                 await Task.Run(() =>
                 {
-                    GitRepository.Clone(workspace.GitUrl, workspace.WorkingDirectory, cloneOptions);
-                    
+                    GitRepository.Clone(gitUrl, workspace.WorkingDirectory, cloneOptions);
+
                     // Explicitly checkout the target branch after clone
                     using var repo = new GitRepository(workspace.WorkingDirectory);
-                    var targetBranch = repo.Branches[workspace.BranchName] 
+                    var targetBranch = repo.Branches[workspace.BranchName]
                         ?? repo.Branches[$"origin/{workspace.BranchName}"];
-                    
+
                     if (targetBranch != null)
                     {
                         if (targetBranch.IsRemote)
@@ -342,7 +346,7 @@ public class RepositoryAnalyzer : IRepositoryAnalyzer
                 stopwatch.Stop();
                 _logger.LogInformation(
                     "Repository cloned successfully. GitUrl: {Url}, Branch: {Branch}, TargetPath: {Path}, Duration: {Duration}ms",
-                    workspace.GitUrl, workspace.BranchName, workspace.WorkingDirectory, stopwatch.ElapsedMilliseconds);
+                    gitUrl, workspace.BranchName, workspace.WorkingDirectory, stopwatch.ElapsedMilliseconds);
                 return;
             }
             catch (LibGit2SharpException ex)
@@ -350,16 +354,27 @@ public class RepositoryAnalyzer : IRepositoryAnalyzer
                 lastException = ex;
                 retryCount++;
 
+                // 如果当前是 cnb.cool 且失败，尝试 fallback 到 github.com
+                if (fallbackGitUrl != null && gitUrl == workspace.GitUrl)
+                {
+                    _logger.LogWarning(
+                        "Clone from cnb.cool failed, falling back to github.com. Error: {ErrorMessage}",
+                        ex.Message);
+                    gitUrl = fallbackGitUrl;
+                    retryCount = 0; // 重置重试计数
+                    continue;
+                }
+
                 _logger.LogWarning(
                     ex,
                     "Clone attempt {Attempt}/{MaxAttempts} failed. GitUrl: {Url}, ErrorMessage: {ErrorMessage}",
-                    retryCount, _options.MaxRetryAttempts, workspace.GitUrl, ex.Message);
+                    retryCount, _options.MaxRetryAttempts, gitUrl, ex.Message);
 
                 if (retryCount < _options.MaxRetryAttempts)
                 {
                     _logger.LogInformation(
                         "Retrying clone in {Delay}ms. GitUrl: {Url}",
-                        _options.RetryDelayMs, workspace.GitUrl);
+                        _options.RetryDelayMs, gitUrl);
 
                     await Task.Delay(_options.RetryDelayMs, cancellationToken);
                 }
@@ -767,5 +782,22 @@ public class RepositoryAnalyzer : IRepositoryAnalyzer
 
         // Delete the directory
         Directory.Delete(path, true);
+    }
+
+    /// <summary>
+    /// 如果 GitUrl 是 cnb.cool，则生成对应的 github.com fallback URL
+    /// </summary>
+    private static string? GetFallbackGitUrl(string gitUrl)
+    {
+        if (string.IsNullOrEmpty(gitUrl)) return null;
+
+        // cnb.cool 格式: https://cnb.cool/owner/repo
+        if (gitUrl.Contains("cnb.cool"))
+        {
+            var uri = new Uri(gitUrl);
+            return $"https://github.com{uri.PathAndQuery}";
+        }
+
+        return null;
     }
 }

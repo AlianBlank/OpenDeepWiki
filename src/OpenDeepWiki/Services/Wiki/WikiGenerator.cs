@@ -228,8 +228,13 @@ Remember to call WriteMindMapAsync with the complete mind map content.";
                 repoContext.ProjectType, string.Join(", ", repoContext.EntryPoints));
 
             _logger.LogDebug("Loading catalog-generator prompt template");
+            var catalogPromptName = repoContext.ProjectType switch
+            {
+                "unity" => "catalog-generator-unity-plugin",
+                _ => "catalog-generator"
+            };
             var prompt = await _promptPlugin.LoadPromptAsync(
-                "catalog-generator",
+                catalogPromptName,
                 new Dictionary<string, string>
                 {
                     ["repository_name"] = $"{workspace.Organization}/{workspace.RepositoryName}",
@@ -1910,32 +1915,41 @@ Translated mind map:";
     private static string DetectProjectType(DirectoryInfo rootDir)
     {
         var types = new List<string>();
-        
+
+        // Check for Unity projects (look for package.json, asmdef, or standard Unity dirs)
+        var hasUnityPackageJson = File.Exists(Path.Combine(rootDir.FullName, "package.json"));
+        var hasAsmdef = rootDir.GetFiles("*.asmdef", SearchOption.AllDirectories).Any();
+        var hasUnityDirs = HasUnityDirectories(rootDir);
+        if (hasUnityPackageJson || hasAsmdef || hasUnityDirs)
+        {
+            types.Add("unity");
+        }
+
         // Check for various project types
         if (rootDir.GetFiles("*.csproj", SearchOption.AllDirectories).Any() ||
             rootDir.GetFiles("*.sln").Any())
             types.Add("dotnet");
-            
-        if (File.Exists(Path.Combine(rootDir.FullName, "package.json")))
+
+        if (File.Exists(Path.Combine(rootDir.FullName, "package.json")) && !types.Contains("unity"))
         {
             var packageJson = File.ReadAllText(Path.Combine(rootDir.FullName, "package.json"));
-            if (packageJson.Contains("\"next\"") || packageJson.Contains("\"react\"") || 
+            if (packageJson.Contains("\"next\"") || packageJson.Contains("\"react\"") ||
                 packageJson.Contains("\"vue\"") || packageJson.Contains("\"angular\""))
                 types.Add("frontend");
             else
                 types.Add("nodejs");
         }
-        
+
         if (File.Exists(Path.Combine(rootDir.FullName, "pom.xml")) ||
             rootDir.GetFiles("build.gradle*").Any())
             types.Add("java");
-            
+
         if (File.Exists(Path.Combine(rootDir.FullName, "go.mod")))
             types.Add("go");
-            
+
         if (File.Exists(Path.Combine(rootDir.FullName, "Cargo.toml")))
             types.Add("rust");
-            
+
         if (File.Exists(Path.Combine(rootDir.FullName, "requirements.txt")) ||
             File.Exists(Path.Combine(rootDir.FullName, "pyproject.toml")) ||
             File.Exists(Path.Combine(rootDir.FullName, "setup.py")))
@@ -1946,6 +1960,20 @@ Translated mind map:";
         if (types.Count > 1)
             return "fullstack:" + string.Join("+", types);
         return types[0];
+    }
+
+    private static bool HasUnityDirectories(DirectoryInfo rootDir)
+    {
+        try
+        {
+            var unityDirs = new[] { "Editor", "Runtime", "Scripts" };
+            return rootDir.GetDirectories()
+                .Any(d => unityDirs.Contains(d.Name, StringComparer.OrdinalIgnoreCase));
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     /// <summary>
