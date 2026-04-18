@@ -133,19 +133,51 @@ public class WikiService(IContext context)
             throw new KeyNotFoundException("仓库语言不存在");
         }
 
-        return languages.FirstOrDefault(l => string.Equals(l.LanguageCode, DefaultLanguageCode, StringComparison.OrdinalIgnoreCase))
-               ?? languages.OrderBy(l => l.CreatedAt).First();
+        // 优先使用默认语言，但如果默认语言没有目录，则使用第一个有目录的语言
+        var defaultLanguage = languages.FirstOrDefault(l => string.Equals(l.LanguageCode, DefaultLanguageCode, StringComparison.OrdinalIgnoreCase));
+
+        if (defaultLanguage != null)
+        {
+            // 检查默认语言是否有目录
+            var hasCatalogs = await context.DocCatalogs
+                .AsNoTracking()
+                .AnyAsync(c => c.BranchLanguageId == defaultLanguage.Id);
+
+            if (hasCatalogs)
+            {
+                return defaultLanguage;
+            }
+        }
+
+        // 默认语言没有目录，查找第一个有目录的语言
+        foreach (var lang in languages.OrderBy(l => l.CreatedAt))
+        {
+            var hasCatalogs = await context.DocCatalogs
+                .AsNoTracking()
+                .AnyAsync(c => c.BranchLanguageId == lang.Id);
+
+            if (hasCatalogs)
+            {
+                return lang;
+            }
+        }
+
+        // 没有任何语言有目录，返回第一个语言
+        return languages.OrderBy(l => l.CreatedAt).First();
     }
 
     private static List<WikiCatalogItemResponse> BuildCatalogTree(List<DocCatalog> catalogs)
     {
-        var lookup = catalogs.ToLookup(c => c.ParentId);
+        // 注意: 数据库中根目录的 ParentId 可能是空字符串 "" 而非 NULL
+        var lookup = catalogs.ToLookup(c => c.ParentId ?? string.Empty);
         return BuildChildren(lookup, null);
     }
 
-    private static List<WikiCatalogItemResponse> BuildChildren(ILookup<string?, DocCatalog> lookup, string? parentId)
+    private static List<WikiCatalogItemResponse> BuildChildren(ILookup<string, DocCatalog> lookup, string? parentId)
     {
-        return lookup[parentId]
+        // 处理 null 和空字符串的情况
+        var effectiveParentId = parentId ?? string.Empty;
+        return lookup[effectiveParentId]
             .OrderBy(c => c.Order)
             .Select(c => new WikiCatalogItemResponse
             {

@@ -862,81 +862,73 @@ Please start executing the task.";
                     })
                 };
 
-                // Use streaming response for real-time output
+                // Use non-streaming response for better tool call compatibility with MiniMax API
                 var contentBuilder = new StringBuilder();
                 UsageDetails? usageDetails = null;
                 var inputTokens = 0;
                 var outputTokens = 0;
                 var toolCallCount = 0;
 
-                _logger.LogDebug("Starting streaming response. Operation: {Operation}", operationName);
+                _logger.LogDebug("Starting non-streaming response. Operation: {Operation}", operationName);
 
                 var thread = await chatClient.CreateSessionAsync(cancellationToken);
-                
-                await foreach (var update in chatClient.RunStreamingAsync(messages, thread, cancellationToken: cancellationToken))
+
+                // Use RunAsync instead of RunStreamingAsync for better MiniMax API compatibility
+                var response = await chatClient.RunAsync(messages, thread, cancellationToken: cancellationToken);
+
+                // Process the response - AgentResponse has Messages property
+                if (response != null && response.Messages != null)
                 {
-                    // Print streaming content
-                    if (!string.IsNullOrEmpty(update.Text))
+                    foreach (var message in response.Messages)
                     {
-                        Console.Write(update.Text);
-                        contentBuilder.Append(update.Text);
-
-                        // 记录AI输出（每100个字符记录一次，避免过于频繁）
-                        if (contentBuilder.Length % 200 < update.Text.Length)
+                        // Extract text content from message
+                        var textContents = message.Contents?.OfType<TextContent>().ToList();
+                        if (textContents != null && textContents.Count > 0)
                         {
-                            await LogProcessingAsync(step, update.Text, true, null, cancellationToken);
+                            foreach (var textContent in textContents)
+                            {
+                                if (!string.IsNullOrEmpty(textContent.Text))
+                                {
+                                    contentBuilder.Append(textContent.Text);
+                                    Console.Write(textContent.Text);
+                                }
+                            }
                         }
-                    }
 
-                    if (update.RawRepresentation is StreamingChatCompletionUpdate chatCompletionUpdate &&
-                        chatCompletionUpdate.ToolCallUpdates.Count > 0)
-                    {
-                        foreach (var tool in chatCompletionUpdate.ToolCallUpdates)
+                        // Extract tool calls from message
+                        var functionCalls = message.Contents?.OfType<FunctionCallContent>().ToList();
+                        if (functionCalls != null && functionCalls.Count > 0)
                         {
-                            if (!string.IsNullOrEmpty(tool.FunctionName))
+                            foreach (var functionCall in functionCalls)
                             {
                                 toolCallCount++;
                                 Console.WriteLine();
-                                Console.Write("Call Function:" + tool.FunctionName);
+                                Console.WriteLine("Call Function: " + functionCall.Name);
                                 _logger.LogDebug(
                                     "Tool call #{CallNumber}: {FunctionName}. Operation: {Operation}",
-                                    toolCallCount, tool.FunctionName, operationName);
+                                    toolCallCount, functionCall.Name, operationName);
 
                                 // 记录工具调用
-                                await LogProcessingAsync(step, $"调用工具: {tool.FunctionName}", false, tool.FunctionName, cancellationToken);
+                                await LogProcessingAsync(step, $"调用工具: {functionCall.Name}", false, functionCall.Name, cancellationToken);
                             }
-                            else
-                            {
-                                Console.Write(" " +
-                                              Encoding.UTF8.GetString(tool.FunctionArgumentsUpdate.ToArray()));
-                            }
+                        }
+
+                        // Track token usage from message
+                        var usageContent = message.Contents?.OfType<UsageContent>().FirstOrDefault();
+                        if (usageContent?.Details != null)
+                        {
+                            usageDetails = usageContent.Details;
                         }
                     }
 
-                    // Track token usage if available
-                    if (update.RawRepresentation is ChatResponseUpdate chatResponseUpdate)
+                    // 记录AI输出
+                    if (contentBuilder.Length > 0)
                     {
-                        if (chatResponseUpdate.RawRepresentation is RawMessageStreamEvent
-                            {
-                                Value: RawMessageDeltaEvent deltaEvent
-                            })
-                        {
-                            inputTokens = (int)((int)(deltaEvent.Usage.InputTokens ?? inputTokens) +
-                                deltaEvent.Usage.CacheCreationInputTokens + deltaEvent.Usage.CacheReadInputTokens ?? 0);
-                            outputTokens = (int)(deltaEvent.Usage.OutputTokens);
-                        }
-                    }
-                    else
-                    {
-                        var usage = update.Contents.OfType<UsageContent>().FirstOrDefault()?.Details;
-                        if (usage != null)
-                        {
-                            usageDetails = usage;
-                        }
+                        await LogProcessingAsync(step, contentBuilder.ToString(), true, null, cancellationToken);
                     }
                 }
 
-                // Print newline after streaming completes
+                // Print newline after response completes
                 Console.WriteLine();
 
                 attemptStopwatch.Stop();
@@ -981,7 +973,7 @@ Please start executing the task.";
                     cancellationToken);
 
                 _logger.LogDebug(
-                    "Streaming response completed. Operation: {Operation}, ContentLength: {Length}",
+                    "Non-streaming response completed. Operation: {Operation}, ContentLength: {Length}",
                     operationName, contentBuilder.Length);
 
                 return;

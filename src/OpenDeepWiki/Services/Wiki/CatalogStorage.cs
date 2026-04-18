@@ -175,7 +175,8 @@ public class CatalogStorage
         var catalogDict = catalogs.ToDictionary(c => c.Id);
 
         // Find root items (no parent)
-        var rootItems = catalogs.Where(c => c.ParentId == null).OrderBy(c => c.Order);
+        // 注意: 数据库中根目录的 ParentId 可能是空字符串 "" 而非 NULL
+        var rootItems = catalogs.Where(c => string.IsNullOrEmpty(c.ParentId)).OrderBy(c => c.Order);
 
         foreach (var item in rootItems)
         {
