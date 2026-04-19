@@ -470,7 +470,7 @@ public class RepositoryDocsService(IContext context, IGitPlatformService gitPlat
             var indexContent = GenerateIndexMarkdown(repository.RepoName, branchEntity.BranchName, rootDirectories);
             var indexEntry = archive.CreateEntry("index.md");
             using var indexStream = indexEntry.Open();
-            using var writer = new StreamWriter(indexStream, Encoding.UTF8);
+            using var writer = new StreamWriter(indexStream, new UTF8Encoding(false));
             await writer.WriteAsync(indexContent);
         }
 
@@ -522,7 +522,7 @@ public class RepositoryDocsService(IContext context, IGitPlatformService gitPlat
 
                 var entry = archive.CreateEntry(fullPath);
                 using var entryStream = entry.Open();
-                using var writer = new StreamWriter(entryStream, Encoding.UTF8);
+                using var writer = new StreamWriter(entryStream, new UTF8Encoding(false));
                 await writer.WriteAsync(catalog.DocFile.Content);
             }
 
@@ -543,7 +543,7 @@ public class RepositoryDocsService(IContext context, IGitPlatformService gitPlat
                 var indexPath = CombineZipPath(nextParentZipPath, "index.md");
                 var indexEntry = archive.CreateEntry(indexPath);
                 using var indexStream = indexEntry.Open();
-                using var indexWriter = new StreamWriter(indexStream, Encoding.UTF8);
+                using var indexWriter = new StreamWriter(indexStream, new UTF8Encoding(false));
                 await indexWriter.WriteAsync(indexContent);
             }
         }
