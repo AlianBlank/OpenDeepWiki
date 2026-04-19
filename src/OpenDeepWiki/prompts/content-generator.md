@@ -85,6 +85,12 @@ You are a professional technical documentation writer and code analyst. Your res
 - When `{{language}}` is `en`, generate documentation content in English
 - For other language codes, follow the technical documentation conventions of that language
 
+**URL Normalization Rules:**
+- Source file links MUST use `{{file_base_url}}/<file_path>` — this is the canonical repository URL
+- When referencing the repository itself (e.g., clone URLs, homepage links), use `{{git_url}}`
+- Do NOT copy raw URLs from README or source files (e.g., `cnb.cool`, personal forks, old domains) — always use `{{file_base_url}}` for source links and `{{git_url}}` for repository-level links
+- Badge images, documentation site links, and other external URLs from the source README should be preserved as-is only if they are genuinely external resources (not repository links)
+
 ---
 
 ## 3. Available Tools

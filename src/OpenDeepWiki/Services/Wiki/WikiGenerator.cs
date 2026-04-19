@@ -644,7 +644,9 @@ Please start executing the task.";
                     ["catalog_path"] = catalogPath,
                     ["catalog_title"] = catalogTitle,
                     ["catalog_outline"] = catalogOutline ?? string.Empty,
-                    ["file_base_url"] = gitBaseUrl
+                    ["file_base_url"] = gitBaseUrl,
+                    ["git_url"] = workspace.GitUrl,
+                    ["branch"] = workspace.BranchName
                 },
                 cancellationToken);
 
