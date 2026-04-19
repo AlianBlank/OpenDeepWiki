@@ -151,7 +151,7 @@ ListFiles("src/**/*", maxResults=100)
 {
   "items": [
     {
-      "title": "English Title (only, no Chinese)",
+      "title": "Title in {{language}}",
       "slug": "english-title-lowercase-hyphen",
       "path": "1-overview",
       "order": 0,
@@ -161,7 +161,7 @@ ListFiles("src/**/*", maxResults=100)
 }
 ```
 
-**标题规则 (title)**: 仅使用英文，无中文字符。描述清晰，用于人类阅读。
+**标题规则 (title)**: 使用 {{language}} 编写标题，描述清晰，用于人类阅读。
 
 **目录名规则 (slug)**: VitePress 目录名，必须满足：
 - 全部小写
