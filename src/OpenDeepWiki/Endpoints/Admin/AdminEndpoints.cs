@@ -14,6 +14,7 @@ public static class AdminEndpoints
         // 注册各个管理模块的端点
         adminGroup.MapAdminStatisticsEndpoints();
         adminGroup.MapAdminRepositoryEndpoints();
+        adminGroup.MapAdminGitHubImportEndpoints();
         adminGroup.MapAdminUserEndpoints();
         adminGroup.MapAdminRoleEndpoints();
         adminGroup.MapAdminDepartmentEndpoints();
