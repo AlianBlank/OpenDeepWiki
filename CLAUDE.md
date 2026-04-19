@@ -47,6 +47,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Shared UI: `web/components/*` and hooks in `web/hooks/*`.
 - API/types: `web/types/*` and `web/middleware.ts` for routing middleware.
 
+## Default Admin Credentials
+- Email: `admin@admin.com`
+- Password: `admin`
+
 ## Configuration Pointers
 - App settings: `src/OpenDeepWiki/appsettings.json` and `appsettings.Development.json`.
 - LLM config: `AI` section in appsettings; environment variables fallback (`CHAT_API_KEY`, `ENDPOINT`, `MODEL_PROVIDER`).
