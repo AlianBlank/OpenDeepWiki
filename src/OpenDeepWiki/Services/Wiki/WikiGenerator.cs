@@ -313,7 +313,8 @@ Execute the workflow now. Read entry point files to understand the architecture,
         // Get all catalog items that need content generation
         var catalogStorage = new CatalogStorage(_context, branchLanguage.Id);
         var catalogJson = await catalogStorage.GetCatalogJsonAsync(cancellationToken);
-        var catalogItems = GetAllCatalogPaths(catalogJson);
+        var catalogRoot = ParseCatalogRoot(catalogJson);
+        var catalogItems = GetAllCatalogPaths(catalogRoot);
 
         var parallelCount = _options.ParallelCount;
         _logger.LogInformation(
@@ -357,8 +358,9 @@ Execute the workflow now. Read entry point files to understand the architecture,
 
                 try
                 {
+                    var outline = FormatCatalogOutline(catalogRoot, item.Path);
                     await GenerateDocumentContentAsync(
-                            workspace, branchLanguage, item.Path, item.Title, linkedCts.Token)
+                            workspace, branchLanguage, item.Path, item.Title, linkedCts.Token, outline)
                         .WaitAsync(generationTimeout, ct);
                 }
                 catch (TimeoutException)
@@ -472,12 +474,17 @@ Execute the workflow now. Read entry point files to understand the architecture,
             $"开始重生成指定文档: {catalogTitle} ({normalizedPath})",
             cancellationToken);
 
+        var regenCatalogStorage = new CatalogStorage(_context, branchLanguage.Id);
+        var regenCatalogJson = await regenCatalogStorage.GetCatalogJsonAsync(cancellationToken);
+        var regenOutline = FormatCatalogOutline(ParseCatalogRoot(regenCatalogJson), normalizedPath);
+
         await GenerateDocumentContentAsync(
             workspace,
             branchLanguage,
             normalizedPath,
             catalogTitle,
-            cancellationToken);
+            cancellationToken,
+            regenOutline);
 
         stopwatch.Stop();
         await LogProcessingAsync(
@@ -612,7 +619,8 @@ Please start executing the task.";
         BranchLanguage branchLanguage,
         string catalogPath,
         string catalogTitle,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string catalogOutline = "")
     {
         var stopwatch = Stopwatch.StartNew();
         _logger.LogInformation(
@@ -634,7 +642,8 @@ Please start executing the task.";
                     ["repository_name"] = $"{workspace.Organization}/{workspace.RepositoryName}",
                     ["language"] = branchLanguage.LanguageCode,
                     ["catalog_path"] = catalogPath,
-                    ["catalog_title"] = catalogTitle
+                    ["catalog_title"] = catalogTitle,
+                    ["catalog_outline"] = catalogOutline ?? string.Empty
                 },
                 cancellationToken);
 
@@ -644,86 +653,17 @@ Please start executing the task.";
                 gitTool.GetTools().Concat(docTool.GetTools()),
                 cancellationToken);
 
-            var userMessage = $@"Please generate Wiki document content for catalog item ""{catalogTitle}"" (path: {catalogPath}).
+            var userMessage = $@"Please generate the Wiki document for catalog item ""{catalogTitle}"" (path: {catalogPath}).
 
-## Repository Information
+Repository: {workspace.Organization}/{workspace.RepositoryName}
+Git URL: {workspace.GitUrl}
+Branch: {workspace.BranchName}
+File Reference Base URL: {gitBaseUrl}
+Target Language: {branchLanguage.LanguageCode}
 
-- Repository: {workspace.Organization}/{workspace.RepositoryName}
-- Git URL: {workspace.GitUrl}
-- Branch: {workspace.BranchName}
-- File Reference Base URL: {gitBaseUrl}
-- Target Language: {branchLanguage.LanguageCode}
-
-## Task Requirements
-
-1. **Gather Source Material**
-   - Use ListFiles to find source files related to ""{catalogTitle}""
-   - Read key implementation files and configuration files
-   - Read interface definitions only when they are directly used or necessary for this document (skip unused/irrelevant interfaces)
-   - Use Grep to search for related classes, functions, API endpoints
-
-2. **Document Structure** (Must Include)
-   - Title (H1): Must match catalog title
-   - Overview: Explain purpose and use cases
-   - Architecture Diagram: Use Mermaid to illustrate component relationships, data flow, or system architecture
-   - Main Content: Detailed explanation of implementation, architecture, or usage
-   - Usage Examples: Code examples extracted from actual source code
-   - Configuration Options (if applicable): List options in table format
-   - API Reference (if applicable): Method signatures, parameters, return values
-   - Related Links: Links to related documentation and source files
-
-3. **File Reference Links** (IMPORTANT)
-   - When referencing source files, use the full URL format: {gitBaseUrl}/<file_path>
-   - Example: [{gitBaseUrl}/src/Example.cs]({gitBaseUrl}/src/Example.cs)
-   - For specific line references: {gitBaseUrl}/<file_path>#L<line_number>
-   - Always provide clickable links to source files mentioned in the document
-
-4. **Mermaid Diagram Requirements** (IMPORTANT)
-   - Include at least one architecture or flow diagram using Mermaid
-   - Use appropriate diagram types:
-     * `flowchart TD` or `flowchart LR` for process flows and component relationships
-     * `classDiagram` for class structures and inheritance
-     * `sequenceDiagram` for interaction sequences
-     * `erDiagram` for data models and relationships
-     * `stateDiagram-v2` for state machines
-   - Mermaid syntax rules:
-     * Node IDs must not contain special characters (use letters, numbers, underscores only)
-     * Use quotes for labels with special characters: `A[""Label with (parentheses)""]`
-     * Escape special characters in labels properly
-     * Keep diagrams focused and readable (max 15-20 nodes per diagram)
-     * Use subgraph for grouping related components
-   - Example valid Mermaid syntax:
-     ```mermaid
-     flowchart TD
-         subgraph Core[""Core Components""]
-             A[Service Layer] --> B[Repository]
-             B --> C[(Database)]
-         end
-         D[API Controller] --> A
-     ```
-
-5. **Content Quality Requirements**
-   - All information must be based on actual source code, do not fabricate
-   - Code examples must be extracted from repository with syntax highlighting
-   - Explain design intent (WHY), not just description (WHAT)
-   - Write document content in {branchLanguage.LanguageCode} language
-   - Keep code identifiers in original form, do not translate
-
-6. **Output Requirements**
-   - Use WriteDoc tool to write the document
-   - Source files are automatically tracked from files you read
-
-## Execution Steps
-
-1. Analyze catalog title to determine document scope
-2. Use ListFiles and Grep to find related source files
-3. Read key files, extract information and code examples
-4. Design appropriate Mermaid diagrams to illustrate architecture/flow
-5. Organize content following document structure template
-6. Ensure all file references use the correct URL format with branch
-7. Call WriteDoc(content) to write document
-
-Please start executing the task.";
+Follow the system prompt instructions for the 3-phase process (Gather, Think, Write).
+Use the catalog outline in the system prompt to understand your document's scope and avoid duplicating content covered by sibling documents.
+Start by analyzing the catalog title and discovering relevant source files.";
 
             await ExecuteAgentWithRetryAsync(
                 _options.ContentModel,
@@ -1059,32 +999,45 @@ Please start executing the task.";
                message.Contains("response ended prematurely");
     }
 
+    private static readonly System.Text.Json.JsonSerializerOptions _catalogJsonOptions = new()
+    {
+        PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
+    };
+
+    /// <summary>
+    /// Parses catalog JSON into a CatalogRoot tree.
+    /// </summary>
+    private static CatalogRoot? ParseCatalogRoot(string catalogJson)
+    {
+        try
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<CatalogRoot>(catalogJson, _catalogJsonOptions);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>
     /// Extracts all catalog paths and titles from the catalog JSON.
     /// </summary>
     private static List<(string Path, string Title)> GetAllCatalogPaths(string catalogJson)
     {
+        var root = ParseCatalogRoot(catalogJson);
+        return GetAllCatalogPaths(root);
+    }
+
+    /// <summary>
+    /// Extracts all leaf catalog paths and titles from a parsed CatalogRoot.
+    /// </summary>
+    private static List<(string Path, string Title)> GetAllCatalogPaths(CatalogRoot? root)
+    {
         var result = new List<(string, string)>();
-
-        try
+        if (root?.Items != null)
         {
-            var root = System.Text.Json.JsonSerializer.Deserialize<CatalogRoot>(
-                catalogJson,
-                new System.Text.Json.JsonSerializerOptions
-                {
-                    PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
-                });
-
-            if (root?.Items != null)
-            {
-                CollectCatalogPaths(root.Items, result);
-            }
+            CollectCatalogPaths(root.Items, result);
         }
-        catch (System.Text.Json.JsonException)
-        {
-            // Return empty list if JSON parsing fails
-        }
-
         return result;
     }
 
@@ -1100,13 +1053,45 @@ Please start executing the task.";
         {
             if (item.Children.Count > 0)
             {
-                // Parent node - only for categorization, recurse into children
                 CollectCatalogPaths(item.Children, result);
             }
             else
             {
-                // Leaf node - needs document generation
                 result.Add((item.Path, item.Title));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Formats the catalog tree as a compact text outline, marking the current item with >>>.
+    /// </summary>
+    private static string FormatCatalogOutline(CatalogRoot? root, string currentPath)
+    {
+        if (root?.Items == null || root.Items.Count == 0)
+            return string.Empty;
+
+        var sb = new System.Text.StringBuilder();
+        FormatCatalogOutlineItems(root.Items, currentPath, 0, sb);
+        return sb.ToString();
+    }
+
+    private static void FormatCatalogOutlineItems(
+        List<CatalogItem> items, string currentPath, int depth, System.Text.StringBuilder sb)
+    {
+        var indent = new string(' ', depth * 2);
+        foreach (var item in items)
+        {
+            var isCurrent = string.Equals(item.Path, currentPath, StringComparison.OrdinalIgnoreCase);
+            var marker = isCurrent ? " >>>" : "";
+
+            if (item.Children.Count > 0)
+            {
+                sb.AppendLine($"{indent}- {item.Title}");
+                FormatCatalogOutlineItems(item.Children, currentPath, depth + 1, sb);
+            }
+            else
+            {
+                sb.AppendLine($"{indent}- {item.Title}{marker} ({item.Path})");
             }
         }
     }

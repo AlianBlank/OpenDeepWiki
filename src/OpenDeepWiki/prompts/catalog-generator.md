@@ -59,6 +59,20 @@ You are a senior code repository analyst. Your task is to generate a well-struct
 - Group related modules under meaningful parent categories
 - Use hierarchy to organize related content
 - Balance between coverage and navigability
+
+**Scope Boundary Rules (Prevent Content Overlap):**
+- Each leaf catalog item MUST have a clear, distinct scope that does NOT significantly overlap with siblings
+- When creating sub-items under a parent, ensure each sub-item covers a DIFFERENT aspect of the parent domain
+- Example of GOOD scoping:
+  - "Authentication Service" covers login, tokens, session management
+  - "User Management" covers profiles, roles, permissions
+  - These overlap minimally — authentication verifies identity, user management manages profiles
+- Example of BAD scoping (creates overlap):
+  - "API Architecture" and "System Architecture" — too similar in scope
+  - "User Overview" and "User Models" — the overview will inevitably cover the models
+- For each catalog item, ask yourself: "Could a writer document this WITHOUT needing to reference the sibling's content?"
+  - If NO, the items should be merged or re-scoped
+- Prefer FEWER, well-scoped items over MANY narrowly-scoped items
 </design_principles>
 
 ---
@@ -96,6 +110,29 @@ Based on discovered modules, identify **core business features**:
 - What would a user/developer want to learn about?
 - Group implementation details under meaningful feature names
 - Avoid creating entries for individual files or classes
+
+**Small Project Detection (CRITICAL):**
+Before designing the catalog, count the number of source files:
+- If the project has **fewer than 10 source files** total: this is a small project
+- If the project has **fewer than 3 core classes**: this is a small project
+- If the project is a **single-purpose library/plugin**: this is a small project
+
+For small projects, you MUST apply these rules:
+- **Maximum 10-12 leaf catalog items** — do NOT create more than 12 documents
+- Merge related topics but keep each document substantive:
+  - Combine "Introduction" + "Features" into a single "Overview" document
+  - Combine "Installation" + "Requirements" into a single "Installation" document
+  - Combine all platform configs into a single "Platform Configuration" document
+  - Combine "Examples" + "Getting Started" into a single "Getting Started" document
+  - Do NOT create separate documents for individual methods or properties of a single class
+- Ensure these STANDARD documents always exist (as separate items):
+  - Overview (plugin/project introduction and features)
+  - Installation (setup and requirements)
+  - Usage/Getting Started (how to use, with code examples)
+  - Platform Configuration (if multi-platform, all configs in one doc)
+  - Troubleshooting/FAQ (common issues)
+- Ask yourself: "Will this document have ENOUGH unique content to justify a separate page?" If the answer is no, merge it with a sibling
+- Target: each document should have at least 3-4 unique paragraphs that don't repeat content from siblings
 
 ### Step 4: Validate & Output
 
