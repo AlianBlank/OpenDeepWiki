@@ -225,29 +225,62 @@ Generate comprehensive Markdown documentation for the catalog item `{{catalog_pa
 **Full catalog structure:**
 {{catalog_outline}}
 
-**CRITICAL BALANCE: Be comprehensive within your scope, but avoid VERBATIM duplication of siblings.**
-- Each document MUST be substantive and self-contained within its own topic
-- Every document should have enough depth for a reader to understand that topic without leaving the page
-- The prohibition is on copying the SAME code blocks, SAME configuration snippets, and SAME diagrams word-for-word — NOT on covering the same conceptual domain from a different angle
+**CRITICAL: Each document must be substantive AND focused. Own your scope fully, but respect content ownership boundaries.**
 
-**Scope Rules (MANDATORY):**
+### Content Ownership Rules (MANDATORY)
 
-1. **OWN YOUR SCOPE FULLY** — Cover `{{catalog_title}}` comprehensively. An Overview doc should explain the full project. An Installation doc should give complete setup instructions. An API doc should document all methods. Do NOT be sparse — be thorough within your assigned topic.
+Each type of content belongs to a specific document. Check the catalog outline to determine which document owns what:
 
-2. **AVOID VERBATIM CODE DUPLICATION** — If a complete code example already belongs naturally to another document (e.g., full class source in the API Reference doc, full config in the Platform Configuration doc), do NOT copy it verbatim. Instead:
-   - Show a simplified/relevant excerpt (2-5 lines) that supports YOUR document's point
-   - Add a link to the sibling document for the full version:
-     ```markdown
-     > Full source: [Document Name](./path)
-     ```
+| Content Type | Owner Document | What Other Documents Should Do |
+|---|---|---|
+| **Full API method signatures + parameter tables** | The API Reference document | Show only 1-line usage if needed for context, with link: `> See [API Reference](./path) for full details` |
+| **Complete code examples (>5 lines)** | The Code Examples / Samples document | Show only brief inline snippets (1-3 lines) if needed, with link to full example |
+| **Platform configuration XML/plist/config files** | The respective Platform Configuration document | Mention the config source in ONE sentence with a link |
+| **System architecture diagram** | The Overview / Architecture document | Link to it instead of redrawing. Only draw diagrams specific to YOUR document's scope |
+| **Caching/internal implementation details** | The Core Concepts / API Reference document | Reference by name only with link |
+| **Installation instructions** | The Installation document | Never repeat installation steps in other documents |
+| **Troubleshooting/FAQ items** | The Troubleshooting document | Mention issues briefly with link if relevant |
 
-3. **AVOID VERBATIM CONFIG DUPLICATION** — If detailed platform configuration (XML, plist, config files) is covered by a dedicated Configuration document, do NOT copy the full configuration block. Show at most a brief mention with a link. The Configuration document owns this content.
+### How to Apply These Rules
 
-4. **AVOID VERBATIM DIAGRAM DUPLICATION** — Each unique diagram should appear in full in only ONE document. If another document has a system architecture diagram, do NOT redraw the same diagram. Instead, draw a diagram that shows the SPECIFIC perspective of `{{catalog_title}}` (e.g., if yours is about a specific component, zoom into that component's internals rather than redrawing the whole system).
+When writing any section, ask yourself: **"Is there a dedicated document in the catalog for this content?"**
+- If YES → Write at most a 1-2 sentence summary and add a link. Do NOT include the full version.
+- If NO → This content belongs in YOUR document. Write it fully.
 
-5. **OVERVIEW PARAGRAPH: KEEP IT BRIEF** — For non-overview documents, the opening description should be 2-3 sentences providing just enough context for the reader. Do NOT re-explain the entire project — that's the Overview document's job.
+### Document Type Guidelines
 
-6. **RELATED LINKS ARE MANDATORY** — Always include a "Related Links" section referencing sibling documents that cover adjacent topics.
+Based on your catalog position, follow the appropriate guideline:
+
+**Overview/Introduction documents:**
+- Describe the project's purpose, architecture, and key features
+- Include the canonical system architecture diagram
+- List platform support at a summary level (table, not full XML configs)
+- Do NOT include full API reference, full code examples, or full configuration blocks — link to those documents
+
+**API Reference documents:**
+- Document all method signatures, parameters, return values, exceptions
+- Include short inline usage snippets (1-3 lines) to demonstrate each parameter
+- Do NOT include full runnable code examples — that belongs in Code Examples
+- Do NOT include platform configuration details — that belongs in Platform Config
+
+**Code Examples / Samples documents:**
+- Provide full, runnable code examples with context (using statements, class wrapper)
+- Show multiple usage patterns (basic, advanced, edge cases)
+- Do NOT include API parameter tables — link to API Reference
+
+**Platform Configuration documents:**
+- Show full configuration files (XML, plist, config files) with annotations
+- Explain platform-specific behavior and caveats
+- Do NOT include API method signatures or full code examples — link to those documents
+- Can include brief (1-3 line) snippets showing how to call the API from that platform
+
+**Troubleshooting documents:**
+- List common issues with causes and solutions
+- Include diagnostic steps and error messages
+- Do NOT repeat configuration or API details — link to the relevant documents
+
+### Related Links (MANDATORY)
+Always include a "Related Links" section referencing sibling documents. This is the primary cross-referencing mechanism.
 
 ---
 
