@@ -643,7 +643,8 @@ Please start executing the task.";
                     ["language"] = branchLanguage.LanguageCode,
                     ["catalog_path"] = catalogPath,
                     ["catalog_title"] = catalogTitle,
-                    ["catalog_outline"] = catalogOutline ?? string.Empty
+                    ["catalog_outline"] = catalogOutline ?? string.Empty,
+                    ["file_base_url"] = gitBaseUrl
                 },
                 cancellationToken);
 
