@@ -20,9 +20,9 @@ services:
       # 服务监听地址
       - URLS=http://+:8080
 
-      # 数据库配置 (支持: sqlite, postgresql)
-      - DB_TYPE=sqlite
-      - CONNECTION_STRING=Data Source=/data/opendeepwiki.db
+      # 数据库配置 (PostgreSQL)
+      - Database__Type=postgresql
+      - ConnectionStrings__Default=Host=postgres;Port=5432;Database=opendeepwiki;Username=postgres;Password=postgres123
 
       # JWT 认证配置 (生产环境请修改)
       - JWT_SECRET_KEY=OpenDeepWiki-Default-Secret-Key-Please-Change-In-Production-Environment-2024
@@ -57,10 +57,31 @@ services:
       - WIKI_PARALLEL_COUNT=5
 
       # 多语言支持 (逗号分隔)
-      - WIKI_LANGUAGES=en,zh
+      - WIKI_LANGUAGES=zh
     volumes:
       - ./data:/data
       - ./src/OpenDeepWiki/prompts:/app/prompts:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres123
+      - POSTGRES_DB=opendeepwiki
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
 
   web:
     image: crpi-j9ha7sxwhatgtvj4.cn-shenzhen.personal.cr.aliyuncs.com/open-deepwiki/opendeepwiki-web
@@ -76,3 +97,6 @@ services:
     environment:
       - NODE_ENV=production
       - API_PROXY_URL=http://opendeepwiki:8080
+
+volumes:
+  postgres_data:
