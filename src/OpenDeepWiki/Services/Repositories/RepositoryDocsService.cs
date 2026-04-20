@@ -502,6 +502,9 @@ public class RepositoryDocsService(IContext context, IGitPlatformService gitPlat
 
         var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+        var totalItems = currentLevelItems.Count;
+        var orderWidth = Math.Max(2, totalItems.ToString().Length);
+
         foreach (var catalog in currentLevelItems)
         {
             // 优先使用 Slug（VitePress 友好），否则用 NormalizeName 处理 Title
@@ -509,7 +512,10 @@ public class RepositoryDocsService(IContext context, IGitPlatformService gitPlat
                 ? catalog.Slug
                 : NormalizeName(IsAsciiOnly(catalog.Title) ? catalog.Title : GetCleanPathName(catalog.Path));
 
-            var itemName = EnsureUniqueName(displayName, usedNames);
+            // 添加数字前缀以保证文件/目录排序正确（如 01.overview、02.architecture）
+            // VitePress 会自动剥离前缀，URL 仍为 /overview（SEO 友好）
+            var prefixedName = $"{catalog.Order.ToString($"D{orderWidth}")}.{displayName}";
+            var itemName = EnsureUniqueName(prefixedName, usedNames);
 
             // 如果有文档文件，创建文件条目
             if (catalog.DocFile != null)
