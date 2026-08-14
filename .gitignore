@@ -6,6 +6,9 @@
 # dotenv files
 .env
 
+# Docker 部署运行时数据（SQLite 数据库、仓库克隆、生成产物）
+/data/
+
 # User-specific files
 *.rsuser
 *.suo
