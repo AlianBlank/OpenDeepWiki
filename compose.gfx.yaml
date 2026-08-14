@@ -1,0 +1,39 @@
+# ============================================================
+# OpenDeepWiki - GameFrameX 跨平台 compose（覆盖默认 compose.yaml）
+#
+# 用法：
+#   cp .env.example .env && 编辑 .env
+#   docker compose -f compose.yaml -f compose.gfx.yaml up
+#
+# 跨平台说明：
+#   - volumes 不硬编码用户名，改用宿主机 ${HOME}（macOS/Linux）或 %USERPROFILE%（Windows）
+#   - macOS / Linux：${HOME} 自动可用
+#   - Windows (PowerShell)：先 $env:HOME = $env:USERPROFILE
+#   - SSL 证书：只在路径存在时挂载（macOS 常见），不存在时跳过
+# ============================================================
+
+services:
+  opendeepwiki:
+    environment:
+      # 覆盖默认值，让本地导入根用跨平台变量
+      - RepositoryAnalyzer__AllowedLocalPathRoots__0=${LOCAL_IMPORT_ROOT:-/host-home}
+      # GameFrameX 工作区相关（C2 引入）
+      - GameFrameX__RegistryPath=${GFX_REGISTRY_PATH:-/gfx-config/repo-registry.json}
+      - GameFrameX__DefaultGroup=${GFX_DEFAULT_GROUP:-gfx-main}
+      - GameFrameX__DocsOutputRoot=${GFX_DOCS_OUTPUT_ROOT:-/gfx-docs}
+    ports:
+      # 用 .env 的 HOST_API_PORT 控制宿主端口（容器内固定 8080）
+      - "${HOST_API_PORT:-18081}:8080"
+    volumes:
+      # 持久化数据
+      - ./data:/data
+      # 宿主机用户目录 -> 容器内 /host-home（跨平台：HOME / USERPROFILE 都映射）
+      - ${HOME:-./host-home-placeholder}:/host-home:ro
+      # GameFrameX repo-registry.json + domain-prompts（挂载为只读）
+      - ./gfx-config:/gfx-config:ro
+      # GameFrameX.Docs 输出根（LocalDocsWriter 写入此处；如需回写到宿主 Docs 仓，挂载其 docs/）
+      - ./gfx-doc-output:/gfx-docs
+
+  web:
+    ports:
+      - "${HOST_WEB_PORT:-13000}:3000"
