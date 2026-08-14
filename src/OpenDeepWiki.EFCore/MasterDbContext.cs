@@ -51,6 +51,8 @@ public interface IContext : IDisposable
     DbSet<McpProvider> McpProviders { get; set; }
     DbSet<McpUsageLog> McpUsageLogs { get; set; }
     DbSet<McpDailyStatistics> McpDailyStatistics { get; set; }
+    DbSet<WorkspaceRepoGroup> WorkspaceRepoGroups { get; set; }
+    DbSet<RepoRef> RepoRefs { get; set; }
     DbSet<ApiKey> ApiKeys { get; set; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
@@ -108,6 +110,8 @@ public abstract class MasterDbContext : DbContext, IContext
     public DbSet<McpProvider> McpProviders { get; set; } = null!;
     public DbSet<McpUsageLog> McpUsageLogs { get; set; } = null!;
     public DbSet<McpDailyStatistics> McpDailyStatistics { get; set; } = null!;
+    public DbSet<WorkspaceRepoGroup> WorkspaceRepoGroups { get; set; } = null!;
+    public DbSet<RepoRef> RepoRefs { get; set; } = null!;
     public DbSet<ApiKey> ApiKeys { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -484,6 +488,32 @@ public abstract class MasterDbContext : DbContext, IContext
         {
             entity.HasIndex(e => e.KeyPrefix).IsUnique();
             entity.HasIndex(e => e.UserId);
+        });
+        // WorkspaceRepoGroup: Id 主键字符串 + 软删除索引 + LastRunStatus 索引
+        modelBuilder.Entity<WorkspaceRepoGroup>(b =>
+        {
+            b.Property(g => g.Id).HasMaxLength(64);
+            b.Property(g => g.Name).IsRequired().HasMaxLength(200);
+            b.Property(g => g.OutputRoot).IsRequired().HasMaxLength(1000);
+            b.Property(g => g.WriterOptionsJson).HasMaxLength(4000);
+            b.HasIndex(g => g.IsDeleted);
+            b.HasIndex(g => g.LastRunStatus);
+        });
+
+        // RepoRef: GroupId 导航 + (GroupId, RepoKey) 唯一 + Active 索引
+        modelBuilder.Entity<RepoRef>(b =>
+        {
+            b.Property(r => r.Id).HasMaxLength(64);
+            b.Property(r => r.GroupId).IsRequired().HasMaxLength(64);
+            b.Property(r => r.RepoKey).IsRequired().HasMaxLength(64);
+            b.Property(r => r.Domain).IsRequired().HasMaxLength(32);
+            b.HasOne(r => r.Group!)
+                .WithMany(g => g.Repos)
+                .HasForeignKey(r => r.GroupId)
+                .OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(r => new { r.GroupId, r.RepoKey }).IsUnique();
+            b.HasIndex(r => r.Active);
+            b.HasIndex(r => r.DisplayOrder);
         });
     }
 }

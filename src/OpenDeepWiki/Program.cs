@@ -26,6 +26,7 @@ using OpenDeepWiki.Services.Translation;
 using OpenDeepWiki.Services.Mcp;
 using OpenDeepWiki.Services.UserProfile;
 using OpenDeepWiki.Services.Wiki;
+using OpenDeepWiki.Services.Workspaces;
 using Scalar.AspNetCore;
 using Serilog;
 
@@ -70,6 +71,12 @@ try
     // Add services to the container.
     // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
     builder.Services.AddOpenApi();
+
+    // WorkspaceRepoGroup.Repos[].Group 反向导航会导致 JSON 循环引用，全局忽略
+    builder.Services.ConfigureHttpJsonOptions(o =>
+    {
+        o.SerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
+    });
     builder.Services.AddMiniApis();
 
     // 根据配置添加数据库服务
@@ -255,6 +262,11 @@ try
     builder.Services.AddHostedService<MindMapWorker>();
     builder.Services.AddHostedService<GraphifyArtifactWorker>();
 
+    // GameFrameX 工作区仓组（C2）
+    builder.Services.AddScoped<IWorkspaceService, WorkspaceService>();
+    builder.Services.AddSingleton<IDocsWriterFactory, DocsWriterFactory>();
+    builder.Services.AddHostedService<WorkspaceProcessingWorker>();
+
     // 配置增量更新选项
     // Requirements: 6.2, 6.3, 6.6 - 可配置的更新间隔
     builder.Services.AddOptions<IncrementalUpdateOptions>()
@@ -404,6 +416,9 @@ try
 
     app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
     app.MapSystemEndpoints();
+    app.MapWorkspaceEndpoints();
+    app.MapExportEndpoints();
+    app.MapImportEndpoints();
     app.MapIncrementalUpdateEndpoints();
     app.MapBranchGenerationEndpoints();
     app.MapMcpProviderEndpoints();
