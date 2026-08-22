@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using OpenDeepWiki.Models.Admin;
 using OpenDeepWiki.Services.Admin;
 using OpenDeepWiki.Services.Graphify;
+using OpenDeepWiki.Services.Workspaces;
 
 namespace OpenDeepWiki.Endpoints.Admin;
 
@@ -167,6 +168,27 @@ public static class AdminRepositoryEndpoints
         })
         .WithName("AdminRegenerateRepository")
         .WithSummary("触发仓库全量重生成");
+
+        // 导出 Rspress 文档（把已生成的 DocCatalog/DocFile 按 Rspress 规范写为 Markdown 文件）
+        repoGroup.MapPost("/{id}/export-rspress", async (
+            string id,
+            [FromQuery] string? outputRoot,
+            [FromQuery] string? language,
+            [FromServices] IRspressDocsExporter exporter,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                var result = await exporter.ExportAsync(id, outputRoot, language, cancellationToken);
+                return Results.Ok(new { success = true, data = result });
+            }
+            catch (Exception ex)
+            {
+                return Results.BadRequest(new { success = false, message = ex.Message });
+            }
+        })
+        .WithName("AdminExportRspress")
+        .WithSummary("导出仓库文档为 Rspress 兼容的 Markdown 文件");
 
         // 获取 Graphify 生成状态
         repoGroup.MapGet("/{id}/graphify", async (

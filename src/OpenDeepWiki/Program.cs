@@ -265,6 +265,9 @@ try
     // GameFrameX 工作区仓组（C2）
     builder.Services.AddScoped<IWorkspaceService, WorkspaceService>();
     builder.Services.AddSingleton<IDocsWriterFactory, DocsWriterFactory>();
+    // Rspress 文档导出（将已生成的 DocCatalog/DocFile 导出为 Rspress 兼容的 Markdown 站点）
+    builder.Services.AddSingleton<RspressPathMapper>();
+    builder.Services.AddScoped<IRspressDocsExporter, RspressDocsExporter>();
     builder.Services.AddHostedService<WorkspaceProcessingWorker>();
 
     // 配置增量更新选项
