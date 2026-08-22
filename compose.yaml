@@ -71,9 +71,14 @@
 
       # 多语言支持 (逗号分隔，如: en,zh,ja,ko)
       - WIKI_LANGUAGES=${WIKI_LANGUAGES:-en,zh}
+      # Rspress 导出默认输出根（容器内路径，对应挂载的 GameFrameX/Docs/docs）
+      - RspressExport__OutputRoot=/host-gfx-docs/docs
     volumes:
-      - ./data:/data
-      - ${HOME}:/host-home:ro
+      - odw-data:/data
+      - /Users/mac/Documents/GithubWorks/GameFrameX/Docs:/host-gfx-docs:rw
+    networks:
+      - default
+      - gameframex
 
   web:
     image: crpi-j9ha7sxwhatgtvj4.cn-shenzhen.personal.cr.aliyuncs.com/open-deepwiki/opendeepwiki-web
@@ -87,3 +92,11 @@
       - NODE_ENV=production
       - SITE_URL=${SITE_URL:-http://localhost:18090}
       - API_PROXY_URL=http://opendeepwiki:8080
+
+volumes:
+  odw-data:
+
+networks:
+  gameframex:
+    name: gameframexadminunifiedapi_gameframex
+    external: true
