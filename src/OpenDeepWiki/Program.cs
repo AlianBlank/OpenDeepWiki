@@ -267,6 +267,7 @@ try
     builder.Services.AddSingleton<IDocsWriterFactory, DocsWriterFactory>();
     // Rspress 文档导出（将已生成的 DocCatalog/DocFile 导出为 Rspress 兼容的 Markdown 站点）
     builder.Services.AddSingleton<RspressPathMapper>();
+    builder.Services.AddSingleton<RepoRegistryProvider>();
     builder.Services.AddScoped<IRspressDocsExporter, RspressDocsExporter>();
     builder.Services.AddHostedService<WorkspaceProcessingWorker>();
 

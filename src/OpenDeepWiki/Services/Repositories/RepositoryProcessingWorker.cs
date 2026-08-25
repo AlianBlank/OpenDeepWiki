@@ -233,8 +233,7 @@ public class RepositoryProcessingWorker(
     }
 
     /// <summary>
-    /// 生成成功后自动导出 Rspress 文档。仅在 RspressExport:AutoExport:Enabled 为 true、
-    /// 仓库配置了 RepoPathMap 映射、且输出根目录存在时触发；导出异常只记日志，不影响生成主流程。
+    /// 生成成功后自动导出 Rspress 文档（门槛与异常处理见 RspressDocsExporter.TryAutoExportAsync）。
     /// </summary>
     private async Task TryAutoExportRspressAsync(
         IRspressDocsExporter? exporter,
@@ -247,37 +246,7 @@ public class RepositoryProcessingWorker(
             return;
         }
 
-        if (!bool.TryParse(configuration?["RspressExport:AutoExport:Enabled"], out var isEnabled) || !isEnabled)
-        {
-            return;
-        }
-
-        // 只导出配置了 RepoPathMap 的仓库（多仓铺开时按需启用）
-        if (string.IsNullOrWhiteSpace(configuration?[$"RspressExport:RepoPathMap:{repository.RepoName}"]))
-        {
-            return;
-        }
-
-        var outputRoot = configuration?["RspressExport:OutputRoot"];
-        if (string.IsNullOrWhiteSpace(outputRoot) || !Directory.Exists(outputRoot))
-        {
-            logger.LogWarning(
-                "自动导出 Rspress 跳过：输出根目录不存在或未配置。Repository: {Repo}, OutputRoot: {Root}",
-                repository.RepoName, outputRoot ?? "(未配置)");
-            return;
-        }
-
-        try
-        {
-            var result = await exporter.ExportAsync(repository.Id, outputRoot, languageFilter: null, cancellationToken);
-            logger.LogInformation(
-                "自动导出 Rspress 完成。Repository: {Repo}, Files: {Files}, Languages: {Langs}",
-                repository.RepoName, result.FileCount, string.Join(",", result.Languages));
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "自动导出 Rspress 失败（不影响生成结果）。Repository: {Repo}", repository.RepoName);
-        }
+        await exporter.TryAutoExportAsync(repository, cancellationToken);
     }
 
     /// <summary>

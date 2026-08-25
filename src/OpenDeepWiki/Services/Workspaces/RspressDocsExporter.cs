@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -37,24 +38,41 @@ public interface IRspressDocsExporter
         string? outputRoot = null,
         string? languageFilter = null,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 按配置自动导出（供 Worker 在生成/翻译完成后调用）：仅当 RspressExport:AutoExport:Enabled
+    /// 为 true、仓库配置了 RepoPathMap 且输出根目录存在时执行；条件不满足或导出失败返回 null（只记日志）。
+    /// </summary>
+    Task<RspressExportResult?> TryAutoExportAsync(
+        Repository repository,
+        CancellationToken cancellationToken = default);
 }
 
 /// <inheritdoc />
 public sealed class RspressDocsExporter : IRspressDocsExporter
 {
+    private static readonly JsonSerializerOptions MetaJsonOpts = new()
+    {
+        WriteIndented = true,
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+
     private readonly IContext _context;
     private readonly RspressPathMapper _mapper;
+    private readonly RepoRegistryProvider _registryProvider;
     private readonly IConfiguration _configuration;
     private readonly ILogger<RspressDocsExporter> _logger;
 
     public RspressDocsExporter(
         IContext context,
         RspressPathMapper mapper,
+        RepoRegistryProvider registryProvider,
         IConfiguration configuration,
         ILogger<RspressDocsExporter> logger)
     {
         _context = context;
         _mapper = mapper;
+        _registryProvider = registryProvider;
         _configuration = configuration;
         _logger = logger;
     }
@@ -92,10 +110,14 @@ public sealed class RspressDocsExporter : IRspressDocsExporter
         if (languages.Count == 0)
             throw new InvalidOperationException($"仓库 '{repo.RepoName}' 无可用语言文档。");
 
-        // 4. 输出根
+        // 4. 输出根与 registry 映射（docPath 落位 + 多语言标题 + upstream 溯源）
         outputRoot ??= _configuration["RspressExport:OutputRoot"] ?? "/data/rspress-output";
         outputRoot = Path.GetFullPath(outputRoot);
-        var repoSlug = ResolveRepoSlug(repo.RepoName);
+        var registryMatch = _registryProvider.Match(repo.RepoName);
+        var repoSlug = registryMatch?.DocPath ?? _mapper.NormalizeRepoSlug(repo.RepoName);
+        var pageMeta = registryMatch != null
+            ? new RspressPageMeta(repo.RepoName, branch.LastCommitId, registryMatch.Upstream)
+            : null;
 
         _logger.LogInformation(
             "Rspress 导出开始：{Repo} (slug={Slug})，语言 {Langs}，输出根 {Root}",
@@ -121,12 +143,18 @@ public sealed class RspressDocsExporter : IRspressDocsExporter
                 continue;
             }
 
-            var site = _mapper.Map(rootCatalogs, repoSlug, bl.LanguageCode, ResolveRepoTitle(repo.RepoName, bl.LanguageCode));
+            var repoTitle = ResolveTitle(registryMatch?.Titles, bl.LanguageCode, repo.RepoName);
+            var site = _mapper.Map(rootCatalogs, repoSlug, bl.LanguageCode, repoTitle, pageMeta);
             languageCodes.Add(bl.LanguageCode);
 
             foreach (var page in site.Pages)
             {
-                await writer.WritePageAsync(page.RelativePath, page.Content, cancellationToken);
+                // _meta.json 合并磁盘上已有条目：域根层（如 .auto/components/unity/）会被多个包共享，
+                // 重导一个包不能把其它包的 dir 条目冲掉
+                var content = page.RelativePath.EndsWith("_meta.json", StringComparison.OrdinalIgnoreCase)
+                    ? MergeMetaJsonIfExists(writer.ResolvePath(page.RelativePath), page.Content, repo.RepoName)
+                    : page.Content;
+                await writer.WritePageAsync(page.RelativePath, content, cancellationToken);
                 fileCount++;
             }
             allWarnings.AddRange(site.Warnings);
@@ -153,32 +181,115 @@ public sealed class RspressDocsExporter : IRspressDocsExporter
             allWarnings);
     }
 
-    /// <summary>
-    /// 解析仓库的 Docs 相对路径：优先取 RspressExport:RepoPathMap 的映射（如 client/unity/component/config），
-    /// 未配置时回退为 NormalizeRepoSlug 的单段 slug。
-    /// </summary>
-    private string ResolveRepoSlug(string repoName)
+    /// <summary>仓库展示名：registry packageTitles 按语言键（大小写不敏感）取值，回退 "*"（全语言通用）与仓库名。</summary>
+    private static string ResolveTitle(
+        IReadOnlyDictionary<string, string>? titles,
+        string languageCode,
+        string fallback)
     {
-        var mapped = _configuration[$"RspressExport:RepoPathMap:{repoName}"];
-        if (!string.IsNullOrWhiteSpace(mapped))
-        {
-            return mapped.Trim('/');
-        }
-
-        return _mapper.NormalizeRepoSlug(repoName);
-    }
-
-    /// <summary>仓库展示名：优先取语言级 RspressExport:RepoTitleMap:{lang}:{repo}，回退仓库级配置，再回退仓库名。</summary>
-    private string ResolveRepoTitle(string repoName, string languageCode)
-    {
-        var title = _configuration[$"RspressExport:RepoTitleMap:{languageCode}:{repoName}"];
-        if (!string.IsNullOrWhiteSpace(title))
+        if (titles != null &&
+            (titles.TryGetValue(languageCode, out var title) ||
+             titles.TryGetValue("*", out title)))
         {
             return title;
         }
 
-        title = _configuration[$"RspressExport:RepoTitleMap:{repoName}"];
-        return string.IsNullOrWhiteSpace(title) ? repoName : title;
+        return fallback;
+    }
+
+    /// <summary>
+    /// _meta.json 落盘前合并磁盘上已有内容：新条目在前（保持本次顺序），
+    /// 旧条目中键（string 条目=自身；对象条目=name）不与新条目重复的按原顺序追加在尾部。
+    /// <para>旧条目中的 "index" 刻意丢弃：现行规范 _meta.json 不列 index（目录自动关联 index.md）。</para>
+    /// </summary>
+    private string MergeMetaJsonIfExists(string fullPath, string incomingJson, string repoName)
+    {
+        if (!File.Exists(fullPath))
+        {
+            return incomingJson;
+        }
+
+        try
+        {
+            using var existing = JsonDocument.Parse(File.ReadAllText(fullPath));
+            using var incoming = JsonDocument.Parse(incomingJson);
+            if (existing.RootElement.ValueKind != JsonValueKind.Array ||
+                incoming.RootElement.ValueKind != JsonValueKind.Array)
+            {
+                return incomingJson;
+            }
+
+            var incomingItems = incoming.RootElement.EnumerateArray().ToList();
+            var incomingKeys = incomingItems.Select(MetaItemKey)
+                .Where(k => k != null)
+                .ToHashSet()!;
+
+            var merged = new List<JsonElement>(incomingItems);
+            foreach (var item in existing.RootElement.EnumerateArray())
+            {
+                var key = MetaItemKey(item);
+                if (key == null || key == "index" || incomingKeys.Contains(key))
+                {
+                    continue;
+                }
+
+                merged.Add(item);
+            }
+
+            return JsonSerializer.Serialize(merged, MetaJsonOpts);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "合并 _meta.json 失败，改用新内容覆盖。Repo: {Repo}, Path: {Path}", repoName, fullPath);
+            return incomingJson;
+        }
+    }
+
+    private static string? MetaItemKey(JsonElement item)
+        => item.ValueKind == JsonValueKind.String
+            ? item.GetString()
+            : item.ValueKind == JsonValueKind.Object &&
+              item.TryGetProperty("name", out var name) &&
+              name.ValueKind == JsonValueKind.String
+                ? name.GetString()
+                : null;
+
+    /// <inheritdoc />
+    public async Task<RspressExportResult?> TryAutoExportAsync(Repository repository, CancellationToken cancellationToken = default)
+    {
+        if (!bool.TryParse(_configuration["RspressExport:AutoExport:Enabled"], out var isEnabled) || !isEnabled)
+        {
+            return null;
+        }
+
+        // 只导出 repo-registry.json 登记的仓库（含 active=false 的条目——命中但停用同样不导出）
+        if (_registryProvider.Match(repository.RepoName) == null)
+        {
+            return null;
+        }
+
+        var outputRoot = _configuration["RspressExport:OutputRoot"];
+        if (string.IsNullOrWhiteSpace(outputRoot) || !Directory.Exists(outputRoot))
+        {
+            _logger.LogWarning(
+                "自动导出 Rspress 跳过：输出根目录不存在或未配置。Repository: {Repo}, OutputRoot: {Root}",
+                repository.RepoName, outputRoot ?? "(未配置)");
+            return null;
+        }
+
+        try
+        {
+            var result = await ExportAsync(repository.Id, outputRoot, languageFilter: null, cancellationToken);
+            _logger.LogInformation(
+                "自动导出 Rspress 完成。Repository: {Repo}, Files: {Files}, Languages: {Langs}",
+                repository.RepoName, result.FileCount, string.Join(",", result.Languages));
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "自动导出 Rspress 失败（不影响生成结果）。Repository: {Repo}", repository.RepoName);
+            return null;
+        }
     }
 
     /// <summary>加载某语言下的 DocCatalog 树（含 DocFile 内容），在内存中按 ParentId 建树。</summary>

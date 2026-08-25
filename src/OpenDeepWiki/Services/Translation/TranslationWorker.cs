@@ -8,6 +8,7 @@ using OpenDeepWiki.EFCore;
 using OpenDeepWiki.Entities;
 using OpenDeepWiki.Services.Repositories;
 using OpenDeepWiki.Services.Wiki;
+using OpenDeepWiki.Services.Workspaces;
 
 namespace OpenDeepWiki.Services.Translation;
 
@@ -66,6 +67,7 @@ public class TranslationWorker : BackgroundService
         var processingLogService = scope.ServiceProvider.GetService<IProcessingLogService>();
         var skillMarkdownBuilder = scope.ServiceProvider.GetService<IRepositorySkillMarkdownBuilder>();
         var wikiOptions = scope.ServiceProvider.GetService<IOptions<WikiGeneratorOptions>>()?.Value;
+        var rspressExporter = scope.ServiceProvider.GetService<IRspressDocsExporter>();
 
         if (translationService == null || context == null || repositoryAnalyzer == null ||
             wikiGenerator == null || wikiOptions == null)
@@ -92,6 +94,7 @@ public class TranslationWorker : BackgroundService
                 repositoryAnalyzer,
                 wikiGenerator,
                 skillMarkdownBuilder,
+                rspressExporter,
                 processingLogService,
                 stoppingToken);
         }
@@ -219,6 +222,7 @@ public class TranslationWorker : BackgroundService
         IRepositoryAnalyzer repositoryAnalyzer,
         IWikiGenerator wikiGenerator,
         IRepositorySkillMarkdownBuilder? skillMarkdownBuilder,
+        IRspressDocsExporter? rspressExporter,
         IProcessingLogService? processingLogService,
         CancellationToken stoppingToken)
     {
@@ -295,6 +299,12 @@ public class TranslationWorker : BackgroundService
                 }
 
                 await translationService.MarkAsCompletedAsync(task.Id, stoppingToken);
+
+                // 翻译完成后自动导出 Rspress 文档（门槛与异常处理见 RspressDocsExporter.TryAutoExportAsync）
+                if (rspressExporter != null)
+                {
+                    await rspressExporter.TryAutoExportAsync(repository, stoppingToken);
+                }
 
                 stopwatch.Stop();
                 _logger.LogInformation(
