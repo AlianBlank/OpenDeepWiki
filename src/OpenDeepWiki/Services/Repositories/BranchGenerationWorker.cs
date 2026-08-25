@@ -7,7 +7,8 @@ namespace OpenDeepWiki.Services.Repositories;
 public sealed class BranchGenerationWorker(
     IServiceScopeFactory scopeFactory,
     ILogger<BranchGenerationWorker> logger,
-    GenerationWindowGuard generationWindow) : BackgroundService
+    GenerationWindowGuard generationWindow,
+    AiQuotaCircuitBreaker quotaBreaker) : BackgroundService
 {
     private static readonly TimeSpan PollingInterval = TimeSpan.FromSeconds(15);
 
@@ -36,8 +37,14 @@ public sealed class BranchGenerationWorker(
 
     private async Task ProcessPendingTasksAsync(CancellationToken stoppingToken)
     {
-        // 生成时间窗口外不领取新分支生成任务（进行中的任务继续跑完）
+        // 生成时间窗口外不领取新分支生成任务（进行中的任务在当前文档完成后暂停并回 Pending）
         if (!generationWindow.IsWithinWindow())
+        {
+            return;
+        }
+
+        // AI 配额熔断打开时不领取新任务（等待 token 恢复）
+        if (quotaBreaker.IsOpen)
         {
             return;
         }
@@ -135,6 +142,15 @@ public sealed class BranchGenerationWorker(
                 task,
                 "Branch generation was cancelled while processing",
                 CancellationToken.None);
+        }
+        catch (OperationCanceledException) when (!generationWindow.IsWithinWindow())
+        {
+            // 生成窗口关闭：已生成文档已持久化，任务回 Pending，下个窗口重领续跑剩余文档
+            logger.LogInformation(
+                "Generation window closed, branch generation task paused. TaskId: {TaskId}", task.Id);
+            task.Status = BranchGenerationTaskStatus.Pending;
+            task.UpdateTimestamp();
+            await context.SaveChangesAsync(CancellationToken.None);
         }
         catch (Exception ex)
         {

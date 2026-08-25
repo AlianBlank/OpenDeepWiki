@@ -22,15 +22,18 @@ public class TranslationWorker : BackgroundService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<TranslationWorker> _logger;
     private readonly GenerationWindowGuard _generationWindow;
+    private readonly AiQuotaCircuitBreaker _quotaBreaker;
 
     public TranslationWorker(
         IServiceScopeFactory scopeFactory,
         ILogger<TranslationWorker> logger,
-        GenerationWindowGuard generationWindow)
+        GenerationWindowGuard generationWindow,
+        AiQuotaCircuitBreaker quotaBreaker)
     {
         _scopeFactory = scopeFactory;
         _logger = logger;
         _generationWindow = generationWindow;
+        _quotaBreaker = quotaBreaker;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -64,6 +67,12 @@ public class TranslationWorker : BackgroundService
     {
         // 生成时间窗口外不领取新翻译任务（进行中的任务继续跑完）
         if (!_generationWindow.IsWithinWindow())
+        {
+            return;
+        }
+
+        // AI 配额熔断打开时不领取新翻译任务（等待 token 恢复）
+        if (_quotaBreaker.IsOpen)
         {
             return;
         }
@@ -308,6 +317,7 @@ public class TranslationWorker : BackgroundService
                 }
 
                 await translationService.MarkAsCompletedAsync(task.Id, stoppingToken);
+                _quotaBreaker.RecordSuccess();
 
                 // 翻译完成后自动导出 Rspress 文档（门槛与异常处理见 RspressDocsExporter.TryAutoExportAsync）
                 if (rspressExporter != null)
@@ -345,6 +355,9 @@ public class TranslationWorker : BackgroundService
             _logger.LogError(ex,
                 "Translation task failed. TaskId: {TaskId}, TargetLang: {TargetLang}, Duration: {Duration}ms",
                 task.Id, task.TargetLanguageCode, stopwatch.ElapsedMilliseconds);
+
+            // AI 配额不足时打开熔断；翻译任务自身 MaxRetry 机制负责重试
+            _quotaBreaker.Trip(ex);
 
             await translationService.MarkAsFailedAsync(task.Id, ex.Message, stoppingToken);
 

@@ -14,17 +14,20 @@ public class IncrementalUpdateWorker : BackgroundService
     private readonly ILogger<IncrementalUpdateWorker> _logger;
     private readonly IncrementalUpdateOptions _options;
     private readonly GenerationWindowGuard _generationWindow;
+    private readonly AiQuotaCircuitBreaker _quotaBreaker;
 
     public IncrementalUpdateWorker(
         IServiceScopeFactory scopeFactory,
         ILogger<IncrementalUpdateWorker> logger,
         IOptions<IncrementalUpdateOptions> options,
-        GenerationWindowGuard generationWindow)
+        GenerationWindowGuard generationWindow,
+        AiQuotaCircuitBreaker quotaBreaker)
     {
         _scopeFactory = scopeFactory;
         _logger = logger;
         _options = options.Value;
         _generationWindow = generationWindow;
+        _quotaBreaker = quotaBreaker;
     }
 
     /// <inheritdoc />
@@ -71,6 +74,12 @@ public class IncrementalUpdateWorker : BackgroundService
     {
         // 生成时间窗口外不领取新增量更新任务（进行中的任务继续跑完）
         if (!_generationWindow.IsWithinWindow())
+        {
+            return;
+        }
+
+        // AI 配额熔断打开时不领取新任务（等待 token 恢复）
+        if (_quotaBreaker.IsOpen)
         {
             return;
         }

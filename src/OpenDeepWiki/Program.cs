@@ -270,6 +270,7 @@ try
     builder.Services.AddSingleton<RspressPathMapper>();
     builder.Services.AddSingleton<RepoRegistryProvider>();
     builder.Services.AddSingleton<GenerationWindowGuard>();
+    builder.Services.AddSingleton<AiQuotaCircuitBreaker>();
     builder.Services.AddScoped<IRspressDocsExporter, RspressDocsExporter>();
     builder.Services.AddHostedService<WorkspaceProcessingWorker>();
     builder.Services.AddHostedService<RepoRegistrySyncWorker>();

@@ -77,6 +77,7 @@ public class WikiGenerator : IWikiGenerator
     private readonly ISkillToolConverter _skillToolConverter;
     private readonly IAiProviderResolver _aiProviderResolver;
     private readonly IRepositoryScanPlanResolver _scanPlanResolver;
+    private readonly GenerationWindowGuard _generationWindow;
 
     // Use AsyncLocal for thread-safe repository ID tracking in concurrent scenarios
     private static readonly AsyncLocal<string?> _currentRepositoryId = new();
@@ -99,7 +100,8 @@ public class WikiGenerator : IWikiGenerator
         IProcessingLogService processingLogService,
         ISkillToolConverter skillToolConverter,
         IAiProviderResolver aiProviderResolver,
-        IRepositoryScanPlanResolver scanPlanResolver)
+        IRepositoryScanPlanResolver scanPlanResolver,
+        GenerationWindowGuard generationWindow)
     {
         _agentFactory = agentFactory ?? throw new ArgumentNullException(nameof(agentFactory));
         _promptPlugin = promptPlugin ?? throw new ArgumentNullException(nameof(promptPlugin));
@@ -111,6 +113,7 @@ public class WikiGenerator : IWikiGenerator
         _skillToolConverter = skillToolConverter ?? throw new ArgumentNullException(nameof(skillToolConverter));
         _aiProviderResolver = aiProviderResolver ?? throw new ArgumentNullException(nameof(aiProviderResolver));
         _scanPlanResolver = scanPlanResolver ?? throw new ArgumentNullException(nameof(scanPlanResolver));
+        _generationWindow = generationWindow ?? throw new ArgumentNullException(nameof(generationWindow));
 
         _logger.LogDebug(
             "WikiGenerator initialized. CatalogModel: {CatalogModel}, ContentModel: {ContentModel}, MaxRetryAttempts: {MaxRetry}",
@@ -452,8 +455,21 @@ Execute the workflow now. The runtime context already contains the directory tre
         var completedCount = skippedCount;
         var toolSnapshot = await CreateToolSnapshotAsync(cancellationToken);
 
+        // 生成窗口关闭时取消整个批次：已生成文档已持久化，仓库回 Pending，下个窗口自动续跑剩余文档
+        using var windowCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+
         async ValueTask GenerateItemAsync((string Path, string Title) item, CancellationToken ct)
         {
+            if (!_generationWindow.IsWithinWindow())
+            {
+                _logger.LogInformation(
+                    "Generation window closed. Pausing document generation. Repository: {Org}/{Repo}, Language: {Language}",
+                    workspace.Organization, workspace.RepositoryName, branchLanguage.LanguageCode);
+                windowCts.Cancel();
+                throw new OperationCanceledException(
+                    "Generation window closed, pausing document generation.", windowCts.Token);
+            }
+
             var startedIndex = Interlocked.Increment(ref startedCount);
             var completionStatus = "success";
             var shouldLogCompletion = false;
@@ -554,7 +570,7 @@ Execute the workflow now. The runtime context already contains the directory tre
                 $"Warming prompt cache with first document: {warmupItem.Title}",
                 cancellationToken);
 
-            await GenerateItemAsync(warmupItem, cancellationToken);
+            await GenerateItemAsync(warmupItem, windowCts.Token);
             parallelItems = itemsToGenerate.Skip(1).ToList();
         }
 
@@ -562,7 +578,7 @@ Execute the workflow now. The runtime context already contains the directory tre
         var parallelOptions = new ParallelOptions
         {
             MaxDegreeOfParallelism = parallelCount,
-            CancellationToken = cancellationToken
+            CancellationToken = windowCts.Token
         };
 
         await Parallel.ForEachAsync(parallelItems, parallelOptions, GenerateItemAsync);

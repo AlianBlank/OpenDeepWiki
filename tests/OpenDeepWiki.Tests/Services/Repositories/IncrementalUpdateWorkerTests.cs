@@ -307,7 +307,10 @@ public class IncrementalUpdateWorkerTests
             }),
             new GenerationWindowGuard(
                 new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>()).Build(),
-                NullLogger<GenerationWindowGuard>.Instance));
+                NullLogger<GenerationWindowGuard>.Instance),
+            new AiQuotaCircuitBreaker(
+                new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>()).Build(),
+                NullLogger<AiQuotaCircuitBreaker>.Instance));
     }
 
     private static async Task InvokeCheckScheduledUpdatesAsync(

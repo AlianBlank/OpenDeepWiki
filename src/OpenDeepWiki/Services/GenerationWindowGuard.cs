@@ -35,7 +35,7 @@ public class GenerationWindowGuard
             }
             else
             {
-                _logger.LogInformation("超出文档生成时间窗口，暂停领取新的生成任务（进行中的任务会跑完）。");
+                _logger.LogInformation("超出文档生成时间窗口，暂停领取新任务；进行中的生成会在当前文档完成后暂停，下个窗口自动续跑。");
             }
         }
 

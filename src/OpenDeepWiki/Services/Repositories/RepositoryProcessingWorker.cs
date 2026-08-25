@@ -22,7 +22,8 @@ public class RepositoryProcessingWorker(
     IServiceScopeFactory scopeFactory,
     ILogger<RepositoryProcessingWorker> logger,
     IOptions<WikiGeneratorOptions> wikiOptions,
-    GenerationWindowGuard generationWindow) : BackgroundService
+    GenerationWindowGuard generationWindow,
+    AiQuotaCircuitBreaker quotaBreaker) : BackgroundService
 {
     private static readonly TimeSpan PollingInterval = TimeSpan.FromSeconds(30);
     private readonly WikiGeneratorOptions _wikiOptions = wikiOptions.Value;
@@ -100,9 +101,16 @@ public class RepositoryProcessingWorker(
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            // 生成时间窗口外不领取新仓（进行中的任务继续跑完）
+            // 生成时间窗口外不领取新仓（进行中的任务在当前文档完成后暂停并回 Pending）
             if (!generationWindow.IsWithinWindow())
             {
+                break;
+            }
+
+            // AI 配额熔断打开时不领取新仓（等待 token 恢复）
+            if (quotaBreaker.IsOpen)
+            {
+                logger.LogDebug("AI 配额熔断打开中，暂停领取新的生成任务。");
                 break;
             }
 
@@ -181,6 +189,7 @@ public class RepositoryProcessingWorker(
                 stopwatch.Stop();
                 // Transition to Completed status
                 repository.Status = RepositoryStatus.Completed;
+                quotaBreaker.RecordSuccess();
                 logger.LogInformation(
                     "Repository processing completed successfully. RepositoryId: {RepositoryId}, Repository: {Org}/{Repo}, Duration: {Duration}ms",
                     repository.Id, repository.OrgName, repository.RepoName, stopwatch.ElapsedMilliseconds);
@@ -201,11 +210,37 @@ public class RepositoryProcessingWorker(
                     repository.Id, repository.OrgName, repository.RepoName, stopwatch.ElapsedMilliseconds);
                 throw;
             }
+            catch (OperationCanceledException) when (!generationWindow.IsWithinWindow())
+            {
+                // 生成窗口关闭：已生成文档已持久化，保持 Pending，下个窗口自动续跑剩余文档
+                stopwatch.Stop();
+                repository.Status = RepositoryStatus.Pending;
+                logger.LogWarning(
+                    "Generation window closed, repository processing paused. RepositoryId: {RepositoryId}, Repository: {Org}/{Repo}, Duration: {Duration}ms",
+                    repository.Id, repository.OrgName, repository.RepoName, stopwatch.ElapsedMilliseconds);
+
+                if (processingLogService != null)
+                {
+                    await processingLogService.LogAsync(repository.Id, ProcessingStep.Content,
+                        "Generation window closed, paused; remaining documents continue next window", cancellationToken: stoppingToken);
+                }
+            }
             catch (Exception ex)
             {
                 stopwatch.Stop();
-                // Transition to Failed status
-                repository.Status = RepositoryStatus.Failed;
+                // AI 配额不足：保持 Pending，熔断冷却结束后自动重试（不消耗 Failed 语义）
+                if (quotaBreaker.Trip(ex))
+                {
+                    repository.Status = RepositoryStatus.Pending;
+                    logger.LogWarning(
+                        "Repository processing hit AI quota limit, keep Pending for retry after breaker reopens. RepositoryId: {RepositoryId}, Repository: {Org}/{Repo}",
+                        repository.Id, repository.OrgName, repository.RepoName);
+                }
+                else
+                {
+                    // Transition to Failed status
+                    repository.Status = RepositoryStatus.Failed;
+                }
                 logger.LogError(ex, 
                     "Repository processing failed. RepositoryId: {RepositoryId}, Repository: {Org}/{Repo}, Duration: {Duration}ms, ErrorType: {ErrorType}",
                     repository.Id, repository.OrgName, repository.RepoName, stopwatch.ElapsedMilliseconds, ex.GetType().Name);
