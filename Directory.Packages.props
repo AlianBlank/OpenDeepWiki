@@ -39,7 +39,8 @@
     <PackageVersion Include="Microsoft.Agents.AI.OpenAI" Version="1.7.0" />
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.8" />
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.8" />
-    <PackageVersion Include="Microsoft.Extensions.AI.OpenAI" Version="9.9.0-preview.1.25458.4" />
+    <PackageVersion Include="Microsoft.Extensions.AI.OpenAI" Version="10.5.1" />
+    <PackageVersion Include="System.ClientModel" Version="1.11.0" />
     <PackageVersion Include="Microsoft.SemanticKernel.Abstractions" Version="1.65.0" />
     <PackageVersion Include="Microsoft.SemanticKernel.Core" Version="1.65.0" />
     <PackageVersion Include="ModelContextProtocol" Version="0.8.0-preview.1" />
