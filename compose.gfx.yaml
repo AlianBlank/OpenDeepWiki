@@ -20,7 +20,7 @@ services:
       # GameFrameX 工作区相关（C2 引入）
       - GameFrameX__RegistryPath=${GFX_REGISTRY_PATH:-/gfx-config/repo-registry.json}
       - GameFrameX__DefaultGroup=${GFX_DEFAULT_GROUP:-gfx-main}
-      - GameFrameX__DocsOutputRoot=${GFX_DOCS_OUTPUT_ROOT:-/gfx-docs}
+      - GameFrameX__DocsOutputRoot=${GFX_DOCS_OUTPUT_ROOT:-/host-gfx-docs}
     ports:
       # 用 .env 的 HOST_API_PORT 控制宿主端口（容器内固定 8080）
       - "${HOST_API_PORT:-18081}:8080"
@@ -31,8 +31,10 @@ services:
       - ${HOME:-./host-home-placeholder}:/host-home:ro
       # GameFrameX repo-registry.json + domain-prompts（挂载为只读）
       - ./gfx-config:/gfx-config:ro
-      # GameFrameX.Docs 输出根（LocalDocsWriter 写入此处；如需回写到宿主 Docs 仓，挂载其 docs/）
-      - ./gfx-doc-output:/gfx-docs
+      # 正式 Docs 仓（GameFrameX/Docs）→ /host-gfx-docs：Rspress 导出写 /host-gfx-docs/docs/<lang>/，
+      # registry 读取 /host-gfx-docs/gfx-config/repo-registry.json（与 appsettings 默认值对齐；
+      # 覆盖 compose.yaml 上游硬编码的 /Users/mac/... 挂载）
+      - ${HOME}/Documents/GithubWorks/GameFrameX/Docs:/host-gfx-docs:rw
 
   web:
     ports:
