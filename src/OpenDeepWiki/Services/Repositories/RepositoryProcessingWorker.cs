@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -7,6 +8,7 @@ using OpenDeepWiki.EFCore;
 using OpenDeepWiki.Entities;
 using OpenDeepWiki.Services.Translation;
 using OpenDeepWiki.Services.Wiki;
+using OpenDeepWiki.Services.Workspaces;
 using System.Diagnostics;
 
 namespace OpenDeepWiki.Services.Repositories;
@@ -61,6 +63,8 @@ public class RepositoryProcessingWorker(
         var scanPlanResolver = scope.ServiceProvider.GetService<IRepositoryScanPlanResolver>();
         var branchProcessor = scope.ServiceProvider.GetService<IRepositoryBranchProcessor>();
         var generationLockService = scope.ServiceProvider.GetService<IRepositoryGenerationLockService>();
+        var rspressExporter = scope.ServiceProvider.GetService<IRspressDocsExporter>();
+        var configuration = scope.ServiceProvider.GetService<IConfiguration>();
 
         if (context is null)
         {
@@ -209,6 +213,12 @@ public class RepositoryProcessingWorker(
                 repository.UpdateTimestamp();
                 context.Repositories.Update(repository);
                 await context.SaveChangesAsync(stoppingToken);
+
+                // 生成成功后自动导出 Rspress 文档（详见 TryAutoExportRspressAsync 的触发条件）
+                if (repository.Status == RepositoryStatus.Completed)
+                {
+                    await TryAutoExportRspressAsync(rspressExporter, configuration, repository, stoppingToken);
+                }
             }
             finally
             {
@@ -219,6 +229,54 @@ public class RepositoryProcessingWorker(
                     repository.Id,
                     CancellationToken.None);
             }
+        }
+    }
+
+    /// <summary>
+    /// 生成成功后自动导出 Rspress 文档。仅在 RspressExport:AutoExport:Enabled 为 true、
+    /// 仓库配置了 RepoPathMap 映射、且输出根目录存在时触发；导出异常只记日志，不影响生成主流程。
+    /// </summary>
+    private async Task TryAutoExportRspressAsync(
+        IRspressDocsExporter? exporter,
+        IConfiguration? configuration,
+        Repository repository,
+        CancellationToken cancellationToken)
+    {
+        if (exporter is null)
+        {
+            return;
+        }
+
+        if (!bool.TryParse(configuration?["RspressExport:AutoExport:Enabled"], out var isEnabled) || !isEnabled)
+        {
+            return;
+        }
+
+        // 只导出配置了 RepoPathMap 的仓库（多仓铺开时按需启用）
+        if (string.IsNullOrWhiteSpace(configuration?[$"RspressExport:RepoPathMap:{repository.RepoName}"]))
+        {
+            return;
+        }
+
+        var outputRoot = configuration?["RspressExport:OutputRoot"];
+        if (string.IsNullOrWhiteSpace(outputRoot) || !Directory.Exists(outputRoot))
+        {
+            logger.LogWarning(
+                "自动导出 Rspress 跳过：输出根目录不存在或未配置。Repository: {Repo}, OutputRoot: {Root}",
+                repository.RepoName, outputRoot ?? "(未配置)");
+            return;
+        }
+
+        try
+        {
+            var result = await exporter.ExportAsync(repository.Id, outputRoot, languageFilter: null, cancellationToken);
+            logger.LogInformation(
+                "自动导出 Rspress 完成。Repository: {Repo}, Files: {Files}, Languages: {Langs}",
+                repository.RepoName, result.FileCount, string.Join(",", result.Languages));
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "自动导出 Rspress 失败（不影响生成结果）。Repository: {Repo}", repository.RepoName);
         }
     }
 

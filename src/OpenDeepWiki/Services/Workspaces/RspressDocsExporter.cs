@@ -95,7 +95,7 @@ public sealed class RspressDocsExporter : IRspressDocsExporter
         // 4. 输出根
         outputRoot ??= _configuration["RspressExport:OutputRoot"] ?? "/data/rspress-output";
         outputRoot = Path.GetFullPath(outputRoot);
-        var repoSlug = _mapper.NormalizeRepoSlug(repo.RepoName);
+        var repoSlug = ResolveRepoSlug(repo.RepoName);
 
         _logger.LogInformation(
             "Rspress 导出开始：{Repo} (slug={Slug})，语言 {Langs}，输出根 {Root}",
@@ -121,7 +121,7 @@ public sealed class RspressDocsExporter : IRspressDocsExporter
                 continue;
             }
 
-            var site = _mapper.Map(rootCatalogs, repoSlug, bl.LanguageCode, repo.RepoName);
+            var site = _mapper.Map(rootCatalogs, repoSlug, bl.LanguageCode, ResolveRepoTitle(repo.RepoName, bl.LanguageCode));
             languageCodes.Add(bl.LanguageCode);
 
             foreach (var page in site.Pages)
@@ -151,6 +151,34 @@ public sealed class RspressDocsExporter : IRspressDocsExporter
             fileCount,
             languageCodes,
             allWarnings);
+    }
+
+    /// <summary>
+    /// 解析仓库的 Docs 相对路径：优先取 RspressExport:RepoPathMap 的映射（如 client/unity/component/config），
+    /// 未配置时回退为 NormalizeRepoSlug 的单段 slug。
+    /// </summary>
+    private string ResolveRepoSlug(string repoName)
+    {
+        var mapped = _configuration[$"RspressExport:RepoPathMap:{repoName}"];
+        if (!string.IsNullOrWhiteSpace(mapped))
+        {
+            return mapped.Trim('/');
+        }
+
+        return _mapper.NormalizeRepoSlug(repoName);
+    }
+
+    /// <summary>仓库展示名：优先取语言级 RspressExport:RepoTitleMap:{lang}:{repo}，回退仓库级配置，再回退仓库名。</summary>
+    private string ResolveRepoTitle(string repoName, string languageCode)
+    {
+        var title = _configuration[$"RspressExport:RepoTitleMap:{languageCode}:{repoName}"];
+        if (!string.IsNullOrWhiteSpace(title))
+        {
+            return title;
+        }
+
+        title = _configuration[$"RspressExport:RepoTitleMap:{repoName}"];
+        return string.IsNullOrWhiteSpace(title) ? repoName : title;
     }
 
     /// <summary>加载某语言下的 DocCatalog 树（含 DocFile 内容），在内存中按 ParentId 建树。</summary>

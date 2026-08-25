@@ -1,6 +1,6 @@
 ﻿FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential python3-dev \
+        build-essential python3-dev git \
         libkrb5-3 curl python3 python3-pip \
     && pip3 install --break-system-packages --no-cache-dir \
         -i https://pypi.tuna.tsinghua.edu.cn/simple \

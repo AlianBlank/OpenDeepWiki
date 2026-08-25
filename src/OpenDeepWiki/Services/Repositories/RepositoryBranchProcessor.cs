@@ -179,6 +179,63 @@ public sealed class RepositoryBranchProcessor(
         string[]? changedFiles,
         CancellationToken cancellationToken)
     {
+        // ponytail: 临时测试开关——只重生成指定语言的目录(验证目录提示词调整效果),环境变量未设置时零影响
+        var catalogOnlyLanguages = Environment.GetEnvironmentVariable("ODW_CATALOG_ONLY_LANGUAGES");
+        if (!string.IsNullOrWhiteSpace(catalogOnlyLanguages))
+        {
+            var enabledLanguages = catalogOnlyLanguages
+                .Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(item => item.Trim().ToLowerInvariant())
+                .ToHashSet();
+
+            if (!enabledLanguages.Contains(language.LanguageCode.ToLowerInvariant()))
+            {
+                await LogAsync(
+                    repository.Id,
+                    branch.Id,
+                    generationTaskId: null,
+                    ProcessingStep.Catalog,
+                    $"Skipping language {language.LanguageCode}: ODW_CATALOG_ONLY_LANGUAGES active",
+                    cancellationToken);
+                return;
+            }
+
+            await wikiGenerator.GenerateCatalogAsync(workspace, language, cancellationToken);
+            await LogAsync(
+                repository.Id,
+                branch.Id,
+                generationTaskId: null,
+                ProcessingStep.Catalog,
+                $"ODW_CATALOG_ONLY_LANGUAGES active: catalog regenerated, skipping documents for {language.LanguageCode}",
+                cancellationToken);
+            return;
+        }
+
+        // ponytail: 临时测试开关——目录已定稿时只重生成指定语言的内容(验证内容提示词)
+        var contentOnlyLanguages = Environment.GetEnvironmentVariable("ODW_CONTENT_ONLY_LANGUAGES");
+        if (!string.IsNullOrWhiteSpace(contentOnlyLanguages))
+        {
+            var enabledContentLanguages = contentOnlyLanguages
+                .Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(item => item.Trim().ToLowerInvariant())
+                .ToHashSet();
+
+            if (!enabledContentLanguages.Contains(language.LanguageCode.ToLowerInvariant()))
+            {
+                return;
+            }
+
+            await LogAsync(
+                repository.Id,
+                branch.Id,
+                generationTaskId: null,
+                ProcessingStep.Content,
+                $"ODW_CONTENT_ONLY_LANGUAGES active: skipping catalog, regenerating documents for {language.LanguageCode}",
+                cancellationToken);
+            await wikiGenerator.GenerateDocumentsAsync(workspace, language, cancellationToken);
+            return;
+        }
+
         if (isIncremental && changedFiles != null && changedFiles.Length > 0)
         {
             await wikiGenerator.IncrementalUpdateAsync(workspace, language, changedFiles, cancellationToken);

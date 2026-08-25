@@ -827,17 +827,16 @@ Please start executing the task.";
 
 2. **Document Structure** (Must Include)
    - Title (H1): Must match catalog title
-   - Purpose and Scope: Explain what this page covers and what related catalog topics are intentionally left to sibling pages
-   - Overview: Explain purpose and use cases
-   - Architecture Diagram: Use Mermaid to illustrate component relationships, data flow, or system architecture
-   - Main Content: Deep, detailed explanation of implementation, architecture, and real control flow (use multiple subsections)
-   - Usage Examples: Multiple code examples extracted from actual source code
-   - Configuration Options (if applicable): List options in table format
-   - API Reference (if applicable): Method signatures, parameters, return values
-   - Failure Modes, Edge Cases & Concurrency (when source evidence exists)
-   - Performance / Operational notes and Extension Points (when applicable)
+   - First paragraph: directly answer the page title's task or problem in 1-3 sentences
+   - Follow the page-type template from the system prompt, chosen by catalog path/title:
+     * Task page (如何/How to): prerequisites → numbered steps with runnable code → common variants → common mistakes → optional short background
+     * Troubleshooting page (…怎么办): symptom → quick diagnosis table (symptom/cause/fix) → fix steps → verification
+     * Reference page (速查/参考): lookup tables with real signatures, defaults and error messages; changelog pages include the original CHANGELOG verbatim without expansion
+     * Overview page: brief intro → quick start steps → one simple architecture overview → next links
+   - Actionable content (steps / diagnostic table / lookup table / runnable code) must appear within one screen
    - Related Links: Links to related documentation and source files
-   - This is a right-sized DeepWiki-style catalog, so each leaf page must be a concise, source-backed reference for its specific topic — not a catch-all replacement for sibling pages
+   - FORBIDDEN sections: Purpose and Scope / 目的与范围 / 用途与范围, 本页不涵盖 or 不在本页范围 lists, and Overview/Architecture/architecture-diagram sections outside overview pages
+   - Length follows the task: stop when the task is fully explained; do NOT pad length or expand lists/changelogs into essays
 
 3. **File Reference Links** (IMPORTANT)
    - When referencing source files, use the actual runtime File Reference Base URL shown below
@@ -847,8 +846,9 @@ Please start executing the task.";
    - Always provide clickable links to source files mentioned in the document
    - Do NOT add a source-file list section to the Markdown body; source files are tracked and rendered separately by the framework
 
-4. **Mermaid Diagram Requirements** (IMPORTANT)
-   - Include at least one architecture or flow diagram using Mermaid
+4. **Mermaid Diagrams** (use only when a flow is genuinely too complex for text)
+   - Task, troubleshooting and reference pages: use numbered step lists and tables instead of diagrams; do NOT add architecture diagrams
+   - Only the overview page may include one simple architecture diagram
    - Use appropriate diagram types:
      * `flowchart TD` or `flowchart LR` for process flows and component relationships
      * `classDiagram` for class structures and inheritance
@@ -874,13 +874,13 @@ Please start executing the task.";
 5. **Content Quality Requirements**
    - All information must be based on actual source code, do not fabricate
    - Code examples must be extracted from repository with syntax highlighting
-   - Explain design intent (WHY), not just description (WHAT)
+   - Put runnable steps first; keep design-intent (WHY) explanations brief and place them at the end of the page
    - Write document content in the runtime target language
    - Keep code identifiers in original form, do not translate
 
 6. **Output Requirements**
      - Write the document INCREMENTALLY so its length is not capped by a single response:
-     * Call WriteDoc(content) first with the title, purpose and scope, overview, and architecture section
+     * Call WriteDoc(content) first with the title, first paragraph and the leading actionable sections
      * Then call AppendDoc(content) only when a major required section does not fit in WriteDoc
    - AppendDoc budget: at most {_options.MaxDocumentAppendOperations} calls for this page. When the budget is reached, stop appending and provide the final summary.
    - Keep the page bounded; prioritize the most important architecture, workflow, configuration, and source-code entry points.
@@ -891,7 +891,7 @@ Please start executing the task.";
 1. Analyze catalog title to determine document scope (treat it as a broad subsystem)
 2. Use ListFiles and Grep sparingly to find related source files
 3. Read a small number of key files, extract information and code examples
-4. Design appropriate Mermaid diagrams to illustrate architecture/flow
+4. Decide the page type from the catalog path/title and pick the matching template
 5. Organize content following document structure template
 6. Ensure all file references use the correct URL format with branch
 7. Call WriteDoc(content), then at most the configured AppendDoc budget for remaining major sections. Stop when source or append budget is reached.

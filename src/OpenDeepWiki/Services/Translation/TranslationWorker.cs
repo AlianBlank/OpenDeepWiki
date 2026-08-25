@@ -114,6 +114,10 @@ public class TranslationWorker : BackgroundService
             .ToListAsync(stoppingToken);
 
         var createdCount = 0;
+        // 本轮已 Add 的 (分支, 目标语言):查重走 DB 查询,看不到未保存的变更追踪实体,
+        // 同一 (RepositoryBranchId, targetLang) 会被多个源语言行重复 Add,
+        // SaveChanges 单事务整批撞 UNIQUE 回滚(表现:每轮循环失败、DB 无行)。
+        var addedThisScan = new HashSet<string>();
 
         foreach (var branchLanguage in branchLanguages)
         {
@@ -129,6 +133,11 @@ public class TranslationWorker : BackgroundService
 
             foreach (var targetLang in translationLanguages)
             {
+                if (!addedThisScan.Add($"{branchLanguage.RepositoryBranchId}:{targetLang.ToLowerInvariant()}"))
+                {
+                    continue; // 本轮已为该分支排过该目标语言
+                }
+
                 var existingLang = await context.BranchLanguages
                     .AnyAsync(l => l.RepositoryBranchId == branchLanguage.RepositoryBranchId &&
                                    l.LanguageCode == targetLang &&

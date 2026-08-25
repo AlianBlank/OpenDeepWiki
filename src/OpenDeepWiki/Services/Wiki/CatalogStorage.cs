@@ -232,10 +232,13 @@ public class CatalogStorage
     {
         foreach (var item in items)
         {
+            // 归一化：末段为 index 的 path 截掉末段（tasks/index → tasks），避免与同名域根形成双胞胎节点
+            var path = NormalizeCatalogPath(item.Path);
+
             // Check if a record with the same path exists (including soft-deleted)
             var existingCatalog = await _context.DocCatalogs
                 .FirstOrDefaultAsync(c => c.BranchLanguageId == _branchLanguageId &&
-                                          c.Path == item.Path, cancellationToken);
+                                          c.Path == path, cancellationToken);
 
             string catalogId;
             if (existingCatalog != null)
@@ -261,7 +264,7 @@ public class CatalogStorage
                     BranchLanguageId = _branchLanguageId,
                     ParentId = parentId,
                     Title = item.Title,
-                    Path = item.Path,
+                    Path = path,
                     Order = item.Order
                 };
 
@@ -274,5 +277,19 @@ public class CatalogStorage
                 await CreateCatalogItemsAsync(item.Children, catalogId, cancellationToken);
             }
         }
+    }
+
+    /// <summary>path 归一化：末段为 index 时截掉末段（tasks/index → tasks）；退化结果回退为 untitled。</summary>
+    private static string NormalizeCatalogPath(string path)
+    {
+        var p = (path ?? string.Empty).Trim().Trim('/');
+        var lastSlash = p.LastIndexOf('/');
+        var lastSeg = lastSlash >= 0 ? p[(lastSlash + 1)..] : p;
+        if (string.Equals(lastSeg, "index", StringComparison.OrdinalIgnoreCase))
+        {
+            return lastSlash > 0 ? p[..lastSlash] : "untitled";
+        }
+
+        return p;
     }
 }
