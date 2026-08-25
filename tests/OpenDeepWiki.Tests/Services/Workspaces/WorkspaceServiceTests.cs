@@ -9,16 +9,16 @@ using Xunit;
 namespace OpenDeepWiki.Tests.Services.Workspaces;
 
 /// <summary>
-/// WorkspaceService upsert / 查询 / 状态标记 契约测试。
+/// WorkspaceService upsert / 查询 / 状态标记 契约测试（v4 目录树 registry）。
 /// 用真实 SQLite 文件库（EnsureCreated），避免 InMemory 对 ForeignKey/Unique 约束的弱支持。
 /// </summary>
 public class WorkspaceServiceTests
 {
     [Fact]
-    public async Task UpsertFromRegistryAsync_NewGroup_InsertsGroupAndRepos()
+    public async Task UpsertFromRegistryAsync_TopLevelGroup_AggregatesActiveSubtreeRepos()
     {
         await using var fixture = await SqliteFixture.CreateAsync();
-        var (registryPath, _) = fixture.WriteRegistry(activeCount: 3);
+        var registryPath = TestRegistryJson.WriteToTempFile();
 
         var svc = new WorkspaceService(fixture.Context, NullLogger<WorkspaceService>.Instance);
 
@@ -26,15 +26,49 @@ public class WorkspaceServiceTests
 
         Assert.Equal("gfx-test", group.Id);
         Assert.Equal("Test Group", group.Name);
-        Assert.Equal(3, group.Repos.Count);
+        // 子树聚合：client 的 unity + shared 的 foundation；inactive-repo 条目停用、paused 子组整棵剪枝
+        Assert.Equal(2, group.Repos.Count);
         Assert.All(group.Repos, r => Assert.True(r.Active));
+        Assert.DoesNotContain(group.Repos, r => r.RepoKey == "paused-repo");
+        Assert.DoesNotContain(group.Repos, r => r.RepoKey == "inactive-repo");
+    }
+
+    [Fact]
+    public async Task UpsertFromRegistryAsync_SubGroupPath_AddressesSubtree()
+    {
+        await using var fixture = await SqliteFixture.CreateAsync();
+        var registryPath = TestRegistryJson.WriteToTempFile();
+
+        var svc = new WorkspaceService(fixture.Context, NullLogger<WorkspaceService>.Instance);
+
+        var group = await svc.UpsertFromRegistryAsync(registryPath, "gfx-test/client");
+
+        Assert.Equal("gfx-test/client", group.Id);
+        Assert.Equal("客户端", group.Name);
+        var repo = Assert.Single(group.Repos);
+        Assert.Equal("unity", repo.RepoKey);
+        Assert.Equal("https://github.com/GameFrameX/GameFrameX.Unity.git", repo.GitUrl);
+    }
+
+    [Fact]
+    public async Task UpsertFromRegistryAsync_StandaloneGroup_FiltersInactiveEntries()
+    {
+        await using var fixture = await SqliteFixture.CreateAsync();
+        var registryPath = TestRegistryJson.WriteToTempFile();
+
+        var svc = new WorkspaceService(fixture.Context, NullLogger<WorkspaceService>.Instance);
+
+        var group = await svc.UpsertFromRegistryAsync(registryPath, "gfx-pkgs");
+
+        var repo = Assert.Single(group.Repos);
+        Assert.Equal("com.gameframex.unity.config", repo.RepoKey);
     }
 
     [Fact]
     public async Task UpsertFromRegistryAsync_SecondCall_UpdatesExisting()
     {
         await using var fixture = await SqliteFixture.CreateAsync();
-        var (registryPath, _) = fixture.WriteRegistry(activeCount: 2);
+        var registryPath = TestRegistryJson.WriteToTempFile();
 
         var svc = new WorkspaceService(fixture.Context, NullLogger<WorkspaceService>.Instance);
         await svc.UpsertFromRegistryAsync(registryPath, "gfx-test");
@@ -47,23 +81,25 @@ public class WorkspaceServiceTests
     }
 
     [Fact]
-    public async Task UpsertFromRegistryAsync_UnknownGroup_Throws()
+    public async Task UpsertFromRegistryAsync_UnknownGroup_ThrowsWithAvailablePaths()
     {
         await using var fixture = await SqliteFixture.CreateAsync();
-        var (registryPath, _) = fixture.WriteRegistry(activeCount: 1);
+        var registryPath = TestRegistryJson.WriteToTempFile();
 
         var svc = new WorkspaceService(fixture.Context, NullLogger<WorkspaceService>.Instance);
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             svc.UpsertFromRegistryAsync(registryPath, "non-existent-group"));
         Assert.Contains("non-existent-group", ex.Message);
+        // 错误提示列出可寻址节点路径（含子组路径）
+        Assert.Contains("gfx-test/client", ex.Message);
     }
 
     [Fact]
     public async Task MarkRunningThenSucceeded_UpdatesStatus()
     {
         await using var fixture = await SqliteFixture.CreateAsync();
-        var (registryPath, _) = fixture.WriteRegistry(activeCount: 1);
+        var registryPath = TestRegistryJson.WriteToTempFile();
         var svc = new WorkspaceService(fixture.Context, NullLogger<WorkspaceService>.Instance);
         await svc.UpsertFromRegistryAsync(registryPath, "gfx-test");
 
@@ -82,7 +118,7 @@ public class WorkspaceServiceTests
     public async Task MarkFailed_StoresTruncatedError()
     {
         await using var fixture = await SqliteFixture.CreateAsync();
-        var (registryPath, _) = fixture.WriteRegistry(activeCount: 1);
+        var registryPath = TestRegistryJson.WriteToTempFile();
         var svc = new WorkspaceService(fixture.Context, NullLogger<WorkspaceService>.Instance);
         await svc.UpsertFromRegistryAsync(registryPath, "gfx-test");
 
@@ -120,31 +156,6 @@ public class WorkspaceServiceTests
             var ctx = new SqliteDbContext(options);
             await ctx.Database.EnsureCreatedAsync();
             return new SqliteFixture(dbPath, ctx);
-        }
-
-        public (string registryPath, string content) WriteRegistry(int activeCount)
-        {
-            var dir = Path.Combine(Path.GetTempPath(), $"odw_reg_{Guid.NewGuid():N}");
-            Directory.CreateDirectory(dir);
-            var repos = Enumerable.Range(0, activeCount)
-                .Select(i => $"    {{ \"alias\": \"repo{i}\", \"domain\": \"tools\", \"active\": true }}");
-            var json = $$"""
-                {
-                  "version": "1.0.0",
-                  "groups": {
-                    "gfx-test": {
-                      "displayName": "Test Group",
-                      "ingestMode": "local-path",
-                      "repositories": [
-                        {{string.Join(",\n", repos)}}
-                      ]
-                    }
-                  }
-                }
-                """;
-            var path = Path.Combine(dir, "repo-registry.json");
-            File.WriteAllText(path, json);
-            return (path, json);
         }
 
         public async ValueTask DisposeAsync()
