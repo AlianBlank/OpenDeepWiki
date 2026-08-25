@@ -10,6 +10,9 @@ public record RepoRegistryMatch(
     IReadOnlyDictionary<string, string>? Titles,
     string? Upstream);
 
+/// <summary>registry 活跃仓库条目（RepoName 为 gitUrl 尾段，已剥 .git）。</summary>
+public record RepoRegistryEntry(string RepoName, string GitUrl);
+
 /// <summary>
 /// 读取 Docs 仓 <c>gfx-config/repo-registry.json</c>（v4 目录树结构），把 OpenDeepWiki 仓库名解析为
 /// Docs 落位路径（docPath）与多语言展示标题。
@@ -37,6 +40,48 @@ public sealed class RepoRegistryProvider
             return null;
         }
 
+        var registry = TryLoadRegistry();
+        if (registry is null)
+        {
+            return null;
+        }
+
+        using (registry)
+        {
+            return MatchCore(registry.RootElement, repoName);
+        }
+    }
+
+    /// <summary>
+    /// 收集全部活跃仓库条目（节点/条目 active=false 时整树剪枝，与 <see cref="Match"/> 同一套停用语义）。
+    /// registry 不可读或缺少 groups 数组时返回空列表。
+    /// </summary>
+    public IReadOnlyList<RepoRegistryEntry> CollectActiveEntries()
+    {
+        var registry = TryLoadRegistry();
+        if (registry is null)
+        {
+            return Array.Empty<RepoRegistryEntry>();
+        }
+
+        using (registry)
+        {
+            if (!registry.RootElement.TryGetProperty("groups", out var groups) ||
+                groups.ValueKind != JsonValueKind.Array)
+            {
+                _logger.LogWarning("repo-registry.json 缺少 groups 数组，无法收集活跃仓库。");
+                return Array.Empty<RepoRegistryEntry>();
+            }
+
+            var entries = new List<RepoRegistryEntry>();
+            CollectNodes(groups, entries);
+            return entries;
+        }
+    }
+
+    /// <summary>读取并解析 registry 文件；不存在或解析失败返回 null（只记日志）。</summary>
+    private JsonDocument? TryLoadRegistry()
+    {
         var registryPath = _configuration["RspressExport:RegistryPath"]
                            ?? "/host-gfx-docs/gfx-config/repo-registry.json";
         if (!File.Exists(registryPath))
@@ -45,20 +90,51 @@ public sealed class RepoRegistryProvider
             return null;
         }
 
-        JsonDocument registry;
         try
         {
-            registry = JsonDocument.Parse(File.ReadAllText(registryPath));
+            return JsonDocument.Parse(File.ReadAllText(registryPath));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "repo-registry.json 解析失败。Path: {Path}", registryPath);
             return null;
         }
+    }
 
-        using (registry)
+    /// <summary>递归收集活跃条目；节点 active=false 剪枝整棵子树，条目 active=false 跳过自身。</summary>
+    private static void CollectNodes(JsonElement nodes, List<RepoRegistryEntry> entries)
+    {
+        foreach (var node in nodes.EnumerateArray())
         {
-            return MatchCore(registry.RootElement, repoName);
+            if (node.TryGetProperty("active", out var nodeActive) && !nodeActive.GetBoolean())
+            {
+                continue;
+            }
+
+            if (node.TryGetProperty("children", out var children) && children.ValueKind == JsonValueKind.Array)
+            {
+                CollectNodes(children, entries);
+            }
+
+            if (node.TryGetProperty("repositories", out var repos) && repos.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var r in repos.EnumerateArray())
+                {
+                    if (r.TryGetProperty("active", out var active) && !active.GetBoolean())
+                    {
+                        continue;
+                    }
+
+                    var gitUrl = r.GetProperty("gitUrl").GetString();
+                    var repoName = RepoNameFromGitUrl(gitUrl);
+                    if (repoName is null)
+                    {
+                        continue;
+                    }
+
+                    entries.Add(new RepoRegistryEntry(repoName, gitUrl!));
+                }
+            }
         }
     }
 

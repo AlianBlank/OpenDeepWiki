@@ -1,11 +1,13 @@
 using System.Reflection;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
 using OpenDeepWiki.EFCore;
 using OpenDeepWiki.Entities;
+using OpenDeepWiki.Services;
 using OpenDeepWiki.Services.Repositories;
 using Xunit;
 
@@ -302,7 +304,10 @@ public class IncrementalUpdateWorkerTests
                 DefaultUpdateIntervalMinutes = 60,
                 MinUpdateIntervalMinutes = 5,
                 MaxRepositoriesPerPoll = 10
-            }));
+            }),
+            new GenerationWindowGuard(
+                new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>()).Build(),
+                NullLogger<GenerationWindowGuard>.Instance));
     }
 
     private static async Task InvokeCheckScheduledUpdatesAsync(

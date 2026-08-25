@@ -13,15 +13,18 @@ public class IncrementalUpdateWorker : BackgroundService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<IncrementalUpdateWorker> _logger;
     private readonly IncrementalUpdateOptions _options;
+    private readonly GenerationWindowGuard _generationWindow;
 
     public IncrementalUpdateWorker(
         IServiceScopeFactory scopeFactory,
         ILogger<IncrementalUpdateWorker> logger,
-        IOptions<IncrementalUpdateOptions> options)
+        IOptions<IncrementalUpdateOptions> options,
+        GenerationWindowGuard generationWindow)
     {
         _scopeFactory = scopeFactory;
         _logger = logger;
         _options = options.Value;
+        _generationWindow = generationWindow;
     }
 
     /// <inheritdoc />
@@ -66,6 +69,12 @@ public class IncrementalUpdateWorker : BackgroundService
 
     private async Task ProcessPendingTasksAsync(CancellationToken stoppingToken)
     {
+        // 生成时间窗口外不领取新增量更新任务（进行中的任务继续跑完）
+        if (!_generationWindow.IsWithinWindow())
+        {
+            return;
+        }
+
         using var scope = _scopeFactory.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<IContext>();
         var updateService = scope.ServiceProvider.GetRequiredService<IIncrementalUpdateService>();

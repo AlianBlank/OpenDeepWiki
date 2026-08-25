@@ -6,7 +6,8 @@ namespace OpenDeepWiki.Services.Repositories;
 
 public sealed class BranchGenerationWorker(
     IServiceScopeFactory scopeFactory,
-    ILogger<BranchGenerationWorker> logger) : BackgroundService
+    ILogger<BranchGenerationWorker> logger,
+    GenerationWindowGuard generationWindow) : BackgroundService
 {
     private static readonly TimeSpan PollingInterval = TimeSpan.FromSeconds(15);
 
@@ -35,6 +36,12 @@ public sealed class BranchGenerationWorker(
 
     private async Task ProcessPendingTasksAsync(CancellationToken stoppingToken)
     {
+        // 生成时间窗口外不领取新分支生成任务（进行中的任务继续跑完）
+        if (!generationWindow.IsWithinWindow())
+        {
+            return;
+        }
+
         using var scope = scopeFactory.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<IContext>();
         var branchProcessor = scope.ServiceProvider.GetRequiredService<IRepositoryBranchProcessor>();

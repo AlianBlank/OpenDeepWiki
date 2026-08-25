@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OpenDeepWiki.EFCore;
 using OpenDeepWiki.Entities;
+using OpenDeepWiki.Services;
 using OpenDeepWiki.Services.Translation;
 using OpenDeepWiki.Services.Wiki;
 using OpenDeepWiki.Services.Workspaces;
@@ -20,7 +21,8 @@ namespace OpenDeepWiki.Services.Repositories;
 public class RepositoryProcessingWorker(
     IServiceScopeFactory scopeFactory,
     ILogger<RepositoryProcessingWorker> logger,
-    IOptions<WikiGeneratorOptions> wikiOptions) : BackgroundService
+    IOptions<WikiGeneratorOptions> wikiOptions,
+    GenerationWindowGuard generationWindow) : BackgroundService
 {
     private static readonly TimeSpan PollingInterval = TimeSpan.FromSeconds(30);
     private readonly WikiGeneratorOptions _wikiOptions = wikiOptions.Value;
@@ -98,6 +100,12 @@ public class RepositoryProcessingWorker(
 
         while (!stoppingToken.IsCancellationRequested)
         {
+            // 生成时间窗口外不领取新仓（进行中的任务继续跑完）
+            if (!generationWindow.IsWithinWindow())
+            {
+                break;
+            }
+
             // Get the oldest pending repository (ordered by creation time)
             var repository = await context.Repositories
                 .OrderBy(item => item.CreatedAt)

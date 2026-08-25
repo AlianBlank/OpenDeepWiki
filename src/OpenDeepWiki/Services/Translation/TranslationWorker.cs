@@ -21,13 +21,16 @@ public class TranslationWorker : BackgroundService
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<TranslationWorker> _logger;
+    private readonly GenerationWindowGuard _generationWindow;
 
     public TranslationWorker(
         IServiceScopeFactory scopeFactory,
-        ILogger<TranslationWorker> logger)
+        ILogger<TranslationWorker> logger,
+        GenerationWindowGuard generationWindow)
     {
         _scopeFactory = scopeFactory;
         _logger = logger;
+        _generationWindow = generationWindow;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -59,6 +62,12 @@ public class TranslationWorker : BackgroundService
 
     private async Task ProcessPendingTasksAsync(CancellationToken stoppingToken)
     {
+        // 生成时间窗口外不领取新翻译任务（进行中的任务继续跑完）
+        if (!_generationWindow.IsWithinWindow())
+        {
+            return;
+        }
+
         using var scope = _scopeFactory.CreateScope();
         var translationService = scope.ServiceProvider.GetService<ITranslationService>();
         var context = scope.ServiceProvider.GetService<IContext>();

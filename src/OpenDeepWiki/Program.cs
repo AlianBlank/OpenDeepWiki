@@ -9,6 +9,7 @@ using OpenDeepWiki.MCP;
 using OpenDeepWiki.Endpoints;
 using OpenDeepWiki.Endpoints.Admin;
 using OpenDeepWiki.Infrastructure;
+using OpenDeepWiki.Services;
 using OpenDeepWiki.Services.Admin;
 using OpenDeepWiki.Services.AI;
 using OpenDeepWiki.Services.Auth;
@@ -268,8 +269,10 @@ try
     // Rspress 文档导出（将已生成的 DocCatalog/DocFile 导出为 Rspress 兼容的 Markdown 站点）
     builder.Services.AddSingleton<RspressPathMapper>();
     builder.Services.AddSingleton<RepoRegistryProvider>();
+    builder.Services.AddSingleton<GenerationWindowGuard>();
     builder.Services.AddScoped<IRspressDocsExporter, RspressDocsExporter>();
     builder.Services.AddHostedService<WorkspaceProcessingWorker>();
+    builder.Services.AddHostedService<RepoRegistrySyncWorker>();
 
     // 配置增量更新选项
     // Requirements: 6.2, 6.3, 6.6 - 可配置的更新间隔
