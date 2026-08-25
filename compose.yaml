@@ -1,81 +1,111 @@
-﻿services:
+# ============================================================
+# OpenDeepWiki - GameFrameX 整合 compose（单文件）
+# 由原 compose.yaml + compose.gfx.yaml 合并（2026-08-26）
+#
+# 用法：
+#   cp .env.example .env && 编辑 .env
+#   docker compose up -d        # 或 make up / make dev
+#
+# 跨平台：volumes 用宿主机 ${HOME}（macOS/Linux）；
+#   Windows PowerShell 先 $env:HOME = $env:USERPROFILE
+# ============================================================
+
+services:
   opendeepwiki:
     image: crpi-j9ha7sxwhatgtvj4.cn-shenzhen.personal.cr.aliyuncs.com/open-deepwiki/opendeepwiki
     build:
       context: .
       dockerfile: src/OpenDeepWiki/Dockerfile
     ports:
-      - "18081:8080"
+      # 宿主端口走 .env（容器内固定 8080）
+      - "${HOST_API_PORT:-18081}:8080"
     restart: unless-stopped
     user: "0:0"
     environment:
-      # ASP.NET Core 环境
+      # ---------- 基础 ----------
       - ASPNETCORE_ENVIRONMENT=Production
-
-      # 服务监听地址
       - URLS=http://+:8080
-
-      # 数据库配置 (支持: sqlite, postgresql)
+      # 数据库（支持: sqlite / postgresql）
       - Database__Type=${DB_TYPE:-sqlite}
       - ConnectionStrings__Default=${CONNECTION_STRING:-Data Source=/data/opendeepwiki.db}
-
-      # JWT 认证配置 (生产环境请修改)
+      # JWT（注意：验签 secret 实际取 appsettings.json 的 Jwt:SecretKey，
+      # 本变量仅在 appsettings 值为空时才生效 —— 现状改这里没用）
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-OpenDeepWiki-Default-Secret-Key-Please-Change-In-Production-Environment-2024}
-
-      # 仓库存储目录
+      # 仓库存储目录与本地导入根（宿主用户目录以只读挂到 /host-home）
       - REPOSITORIES_DIRECTORY=/data
-      - RepositoryAnalyzer__AllowedLocalPathRoots__0=/host-home
+      - RepositoryAnalyzer__AllowedLocalPathRoots__0=${LOCAL_IMPORT_ROOT:-/host-home}
 
-      # AI 服务配置 (全局默认，用于 Chat 等功能)
-      - CHAT_API_KEY=${CHAT_API_KEY:-your-chat-api-key}
-      - ENDPOINT=${ENDPOINT:-https://api.openai.com/v1}
+      # ---------- 分阶段 AI 模型 ----------
+      # 优先级：DB 系统设置（Admin 后台「系统设置」改，热生效）
+      #         > 本处 env（仅首次初始化时种子入库；之后 DB 已有值不再覆盖，
+      #            仅当 DB 绑定指向已失效的 provider/model 时才修复）
+      # 已初始化过的库要换模型：去 Admin 后台改，改这里无效。
+      #
+      # Chat 全局默认（也是下方未单独配置阶段的回退）
+      - CHAT_API_KEY=${CHAT_API_KEY:-}
+      - ENDPOINT=${ENDPOINT:-}
       - CHAT_REQUEST_TYPE=${CHAT_REQUEST_TYPE:-OpenAI}
-
-      # Graphify artifact generation (optional)
-      - SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
-      - REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
-      - GRAPHIFY_BACKEND=${GRAPHIFY_BACKEND:-}
+      # 目录 + 思维导图阶段（结构化任务，可用快而便宜的模型）
+      - WIKI_CATALOG_MODEL=${WIKI_CATALOG_MODEL:-}
+      - WIKI_CATALOG_ENDPOINT=${WIKI_CATALOG_ENDPOINT:-}
+      - WIKI_CATALOG_API_KEY=${WIKI_CATALOG_API_KEY:-}
+      - WIKI_CATALOG_REQUEST_TYPE=${WIKI_CATALOG_REQUEST_TYPE:-OpenAI}
+      # 文档内容阶段（长文写作，建议用强模型）
+      - WIKI_CONTENT_MODEL=${WIKI_CONTENT_MODEL:-}
+      - WIKI_CONTENT_ENDPOINT=${WIKI_CONTENT_ENDPOINT:-}
+      - WIKI_CONTENT_API_KEY=${WIKI_CONTENT_API_KEY:-}
+      - WIKI_CONTENT_REQUEST_TYPE=${WIKI_CONTENT_REQUEST_TYPE:-OpenAI}
+      # 翻译阶段（不配则回退 Content 的配置）
+      - WIKI_TRANSLATION_MODEL=${WIKI_TRANSLATION_MODEL:-}
+      - WIKI_TRANSLATION_ENDPOINT=${WIKI_TRANSLATION_ENDPOINT:-}
+      - WIKI_TRANSLATION_API_KEY=${WIKI_TRANSLATION_API_KEY:-}
+      - WIKI_TRANSLATION_REQUEST_TYPE=${WIKI_TRANSLATION_REQUEST_TYPE:-OpenAI}
+      # Graphify 社区标签阶段（不配则回退 OPENAI_* / Content 的配置）
       - GRAPHIFY_MODEL=${GRAPHIFY_MODEL:-}
-      - GRAPHIFY_OUTPUT_ROOT=/data/graphify-artifacts
+      - GRAPHIFY_BACKEND=${GRAPHIFY_BACKEND:-}
       - GRAPHIFY_OPENAI_BASE_URL=${GRAPHIFY_OPENAI_BASE_URL:-}
       - GRAPHIFY_OPENAI_API_KEY=${GRAPHIFY_OPENAI_API_KEY:-}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
-      - MOONSHOT_API_KEY=${MOONSHOT_API_KEY:-}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-}
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-}
+      - SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+      - REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+      - GRAPHIFY_OUTPUT_ROOT=/data/graphify-artifacts
 
-      # Wiki 生成器配置 - 目录生成
-      - WIKI_CATALOG_MODEL=${WIKI_CATALOG_MODEL:-gpt-4o}
-      - WIKI_CATALOG_ENDPOINT=${WIKI_CATALOG_ENDPOINT:-https://api.openai.com/v1}
-      - WIKI_CATALOG_API_KEY=${WIKI_CATALOG_API_KEY:-your-catalog-api-key}
-      - WIKI_CATALOG_REQUEST_TYPE=${WIKI_CATALOG_REQUEST_TYPE:-OpenAI}
-
-      # Wiki 生成器配置 - 内容生成
-      - WIKI_CONTENT_MODEL=${WIKI_CONTENT_MODEL:-gpt-4o}
-      - WIKI_CONTENT_ENDPOINT=${WIKI_CONTENT_ENDPOINT:-https://api.openai.com/v1}
-      - WIKI_CONTENT_API_KEY=${WIKI_CONTENT_API_KEY:-your-content-api-key}
-      - WIKI_CONTENT_REQUEST_TYPE=${WIKI_CONTENT_REQUEST_TYPE:-OpenAI}
-
-      # Wiki 生成器配置 - 翻译 (可选，不配置则使用内容生成配置)
-      # - WIKI_TRANSLATION_MODEL=gpt-4o
-      # - WIKI_TRANSLATION_ENDPOINT=https://api.openai.com/v1
-      # - WIKI_TRANSLATION_API_KEY=your-translation-api-key
-      # - WIKI_TRANSLATION_REQUEST_TYPE=OpenAI
-
-      # Wiki 生成并行数 (默认: 5)
+      # ---------- Wiki 生成行为 ----------
       - WIKI_PARALLEL_COUNT=${WIKI_PARALLEL_COUNT:-5}
-
-      # 多语言支持 (逗号分隔，如: en,zh,ja,ko)
       - WIKI_LANGUAGES=${WIKI_LANGUAGES:-en,zh}
-      # Rspress 导出默认输出根（容器内路径，对应挂载的 GameFrameX/Docs/docs）
+      # Rspress 导出输出根（容器内路径，对应挂载的 GameFrameX/Docs/docs）
       - RspressExport__OutputRoot=/host-gfx-docs/docs
+
+      # ---------- GameFrameX：registry 与工作区 ----------
+      - GameFrameX__RegistryPath=${GFX_REGISTRY_PATH:-/gfx-config/repo-registry.json}
+      - GameFrameX__DefaultGroup=${GFX_DEFAULT_GROUP:-gfx-main}
+      - GameFrameX__DocsOutputRoot=${GFX_DOCS_OUTPUT_ROOT:-/host-gfx-docs}
+      # registry 自动同步：新 active 仓自动入库 Pending 并开始生成
+      - GameFrameX__AutoSync__Enabled=${GFX_AUTOSYNC_ENABLED:-true}
+      - GameFrameX__AutoSync__IntervalSeconds=${GFX_AUTOSYNC_INTERVAL_SECONDS:-3600}
+      - GameFrameX__AutoSync__MaxNewReposPerCycle=${GFX_AUTOSYNC_MAX_NEW_REPOS:-3}
+      - GameFrameX__AutoSync__DefaultLanguage=${GFX_AUTOSYNC_DEFAULT_LANGUAGE:-zh}
+      # 每日生成时间窗口（支持跨午夜，如 23:00→10:00；容器 UTC，内部按 TimeZone 换算；
+      # 窗口结束进行中的任务在当前文档完成后暂停回 Pending，下个窗口续跑）
+      - GameFrameX__GenerationWindow__Enabled=${GFX_WINDOW_ENABLED:-true}
+      - GameFrameX__GenerationWindow__Start=${GFX_WINDOW_START:-23:00}
+      - GameFrameX__GenerationWindow__End=${GFX_WINDOW_END:-10:00}
+      - GameFrameX__GenerationWindow__TimeZone=${GFX_WINDOW_TIMEZONE:-Asia/Shanghai}
+      # AI 配额熔断：429/402 或余额不足时指数退避冷却，冷却期不领新任务、任务保持 Pending 自动重试
+      - GameFrameX__QuotaBreaker__Enabled=${GFX_QUOTA_BREAKER_ENABLED:-true}
+      - GameFrameX__QuotaBreaker__InitialCooldownSeconds=${GFX_QUOTA_INITIAL_COOLDOWN_SECONDS:-300}
+      - GameFrameX__QuotaBreaker__MaxCooldownSeconds=${GFX_QUOTA_MAX_COOLDOWN_SECONDS:-3600}
     volumes:
-      - odw-data:/data
-      - /Users/mac/Documents/GithubWorks/GameFrameX/Docs:/host-gfx-docs:rw
+      # 持久化数据（SQLite 库与仓库工作区）
+      - ./data:/data
+      # 宿主机用户目录 -> /host-home（本地导入用，只读）
+      - ${HOME:-./host-home-placeholder}:/host-home:ro
+      # GameFrameX repo-registry.json + domain-prompts（只读）
+      - ./gfx-config:/gfx-config:ro
+      # GameFrameX/Docs 仓 -> /host-gfx-docs：Rspress 导出写 /host-gfx-docs/docs/<lang>/，
+      # registry 读取 /host-gfx-docs/gfx-config/repo-registry.json
+      - ${HOME}/Documents/GithubWorks/GameFrameX/Docs:/host-gfx-docs:rw
     networks:
       - default
       - gameframex
@@ -86,15 +116,12 @@
       context: ./web
       dockerfile: Dockerfile
     ports:
-      - "18090:3000"
+      - "${HOST_WEB_PORT:-13000}:3000"
     restart: unless-stopped
     environment:
       - NODE_ENV=production
-      - SITE_URL=${SITE_URL:-http://localhost:18090}
+      - SITE_URL=${SITE_URL:-http://localhost:13000}
       - API_PROXY_URL=http://opendeepwiki:8080
-
-volumes:
-  odw-data:
 
 networks:
   gameframex:
