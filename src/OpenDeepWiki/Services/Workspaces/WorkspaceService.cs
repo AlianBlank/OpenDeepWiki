@@ -11,6 +11,7 @@ public interface IWorkspaceService
 {
     /// <summary>
     /// 从 repo-registry.json 导入或更新一个组（upsert Group + Repos）。
+    /// groupId 为 v4 目录树的节点路径（'/' 分隔，如 "gfx-core" 或 "gfx-core/client"），聚合该节点子树全部活跃仓。
     /// </summary>
     Task<WorkspaceRepoGroup> UpsertFromRegistryAsync(
         string registryPath,
@@ -51,9 +52,10 @@ public sealed class WorkspaceService(IContext context, ILogger<WorkspaceService>
         CancellationToken cancellationToken = default)
     {
         var doc = DomainPromptRegistryLoader.LoadFromConfig(registryPath);
-        if (!doc.Groups.TryGetValue(groupId, out var cfg))
+        var node = FindNode(doc.Groups, groupId);
+        if (node is null)
             throw new InvalidOperationException(
-                $"repo-registry.json groups 中找不到 '{groupId}'。可用：{string.Join(", ", doc.Groups.Keys)}");
+                $"repo-registry.json 中找不到组 '{groupId}'（groupId 为 v4 节点路径，如 'gfx-core/client'）。可用：{string.Join(", ", ListNodePaths(doc.Groups))}");
 
         // upsert group
         var existing = await context.WorkspaceRepoGroups
@@ -61,36 +63,28 @@ public sealed class WorkspaceService(IContext context, ILogger<WorkspaceService>
             .FirstOrDefaultAsync(g => g.Id == groupId, cancellationToken);
 
         var group = existing ?? new WorkspaceRepoGroup { Id = groupId };
-        group.Name = cfg.DisplayName ?? group.Name;
-        group.Description = cfg.Description;
-        group.BasePath = cfg.BasePath ?? group.BasePath;
-        group.LanguagesCsv = cfg.LanguagesCsv ?? "en";
-        group.CatalogTemplatePath = cfg.CatalogTemplatePath;
-        group.DomainPromptsPath = cfg.DomainPromptsPath;
-        group.OutputRoot = cfg.OutputRoot ?? group.OutputRoot;
+        group.Name = node.DisplayName ?? node.Name;
+        group.Description = node.Note ?? group.Description;
         group.WriterType = DocsWriterType.Local; // Phase 1 默认 Local
         group.UpdateTimestamp();
 
         if (existing is null)
             await context.WorkspaceRepoGroups.AddAsync(group, cancellationToken);
 
-        // upsert repos：以 (GroupId, NormalizedRepoKey) 为准
+        // upsert repos：以 (GroupId, NormalizedRepoKey) 为准，聚合命中节点子树全部活跃仓
         var existingRepoKeys = group.Repos.ToDictionary(r => r.RepoKey, StringComparer.OrdinalIgnoreCase);
         var order = 0;
-        foreach (var entry in cfg.Repos.Where(r => r.Active))
+        foreach (var entry in CollectActiveRepositories(node).Where(r => r.Active))
         {
             var key = entry.NormalizedRepoKey;
             if (string.IsNullOrWhiteSpace(key)) continue;
-            entry.DisplayOrder = entry.DisplayOrder > 0 ? entry.DisplayOrder : order++;
+            var displayOrder = order++;
 
             if (existingRepoKeys.TryGetValue(key, out var repo))
             {
                 repo.GitUrl = entry.GitUrl ?? repo.GitUrl;
-                repo.LocalPath = entry.LocalPath ?? repo.LocalPath;
-                repo.Domain = entry.Domain ?? repo.Domain;
-                repo.Branch = entry.Branch ?? repo.Branch;
                 repo.Active = entry.Active;
-                repo.DisplayOrder = entry.DisplayOrder;
+                repo.DisplayOrder = displayOrder;
                 repo.UpdateTimestamp();
             }
             else
@@ -101,11 +95,8 @@ public sealed class WorkspaceService(IContext context, ILogger<WorkspaceService>
                     GroupId = groupId,
                     RepoKey = key,
                     GitUrl = entry.GitUrl,
-                    LocalPath = entry.LocalPath,
-                    Domain = entry.Domain ?? "tools",
-                    Branch = entry.Branch ?? "main",
                     Active = entry.Active,
-                    DisplayOrder = entry.DisplayOrder
+                    DisplayOrder = displayOrder
                 };
                 group.Repos.Add(newRepo);
                 await context.RepoRefs.AddAsync(newRepo, cancellationToken);
@@ -117,6 +108,73 @@ public sealed class WorkspaceService(IContext context, ILogger<WorkspaceService>
             groupId, group.Repos.Count);
 
         return group;
+    }
+
+    /// <summary>按 '/' 分隔的节点路径寻址（如 "gfx-core"、"gfx-core/client"），在 v4 目录树中找节点。</summary>
+    private static RegistryNode? FindNode(List<RegistryNode> nodes, string groupId)
+    {
+        var segments = groupId.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return segments.Length == 0 ? null : FindNodeCore(nodes, segments, 0);
+    }
+
+    private static RegistryNode? FindNodeCore(List<RegistryNode> nodes, string[] segments, int index)
+    {
+        foreach (var node in nodes)
+        {
+            if (!string.Equals(node.Name, segments[index], StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (index == segments.Length - 1)
+            {
+                return node;
+            }
+
+            var child = FindNodeCore(node.Children, segments, index + 1);
+            if (child != null)
+            {
+                return child;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>聚合节点子树全部 repository 条目；节点 active=false 的子树整棵跳过（v4 停用语义）。</summary>
+    private static IEnumerable<RepoEntry> CollectActiveRepositories(RegistryNode node)
+    {
+        if (node.Active == false)
+        {
+            yield break;
+        }
+
+        foreach (var entry in node.Repositories)
+        {
+            yield return entry;
+        }
+
+        foreach (var child in node.Children)
+        {
+            foreach (var entry in CollectActiveRepositories(child))
+            {
+                yield return entry;
+            }
+        }
+    }
+
+    /// <summary>列出全部可寻址节点路径（含中间节点），用于错误提示。</summary>
+    private static IEnumerable<string> ListNodePaths(List<RegistryNode> nodes, string prefix = "")
+    {
+        foreach (var node in nodes)
+        {
+            var path = prefix.Length == 0 ? node.Name : prefix + "/" + node.Name;
+            yield return path;
+            foreach (var childPath in ListNodePaths(node.Children, path))
+            {
+                yield return childPath;
+            }
+        }
     }
 
     public Task<WorkspaceRepoGroup?> GetAsync(string groupId, CancellationToken cancellationToken = default)

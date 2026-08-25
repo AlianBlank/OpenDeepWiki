@@ -66,8 +66,8 @@ public sealed class DomainPromptRegistry
 }
 
 /// <summary>
-/// repo-registry.json 中的根对象结构。groups 是字典（key = groupId）。
-/// 与 GameFrameX/Docs/gfx-config/repo-registry.json 的实际 schema 对齐。
+/// repo-registry.json 中的根对象结构。groups 为节点数组（v4 目录树）。
+/// 与 GameFrameX/Docs/gfx-config/repo-registry.json 的 v4 schema 对齐。
 /// </summary>
 public sealed class RepoRegistryDocument
 {
@@ -81,85 +81,86 @@ public sealed class RepoRegistryDocument
     public string? Description { get; set; }
 
     /// <summary>
-    /// groups 是 "groupId -> 组配置" 的字典
+    /// 顶层组节点数组
     /// </summary>
     [JsonPropertyName("groups")]
-    public Dictionary<string, WorkspaceGroupConfig> Groups { get; set; } = new(StringComparer.Ordinal);
+    public List<RegistryNode> Groups { get; set; } = new();
 }
 
 /// <summary>
-/// 单个仓组配置（对应 repo-registry.json groups 下的一项）
+/// v4 目录树节点（组 / 子组同构递归，约定最多三层：组 → 子组 → 仓库）
 /// </summary>
-public sealed class WorkspaceGroupConfig
+public sealed class RegistryNode
 {
+    /// <summary>
+    /// 节点标识（kebab-case，同级唯一）；groupId 按 '/' 分隔的节点路径寻址（如 "gfx-core/client"）
+    /// </summary>
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
     [JsonPropertyName("displayName")]
     public string? DisplayName { get; set; }
 
+    /// <summary>
+    /// 摄取方式；子节点可省略，省略时继承组级声明
+    /// </summary>
     [JsonPropertyName("ingestMode")]
     public string? IngestMode { get; set; }
 
-    [JsonPropertyName("description")]
-    public string? Description { get; set; }
-
     /// <summary>
-    /// 工作区根路径（用于解析 repositories[].localPath 的相对根；可选）
+    /// 节点开关；false 时停用该节点整棵子树（缺省启用）
     /// </summary>
-    [JsonPropertyName("basePath")]
-    public string? BasePath { get; set; }
+    [JsonPropertyName("active")]
+    public bool? Active { get; set; }
 
-    [JsonPropertyName("catalogTemplatePath")]
-    public string? CatalogTemplatePath { get; set; }
-
-    [JsonPropertyName("domainPromptsPath")]
-    public string? DomainPromptsPath { get; set; }
-
-    [JsonPropertyName("outputRoot")]
-    public string? OutputRoot { get; set; }
-
-    [JsonPropertyName("languagesCsv")]
-    public string? LanguagesCsv { get; set; }
+    [JsonPropertyName("children")]
+    public List<RegistryNode> Children { get; set; } = new();
 
     [JsonPropertyName("repositories")]
-    public List<RepoEntry> Repos { get; set; } = new();
+    public List<RepoEntry> Repositories { get; set; } = new();
+
+    [JsonPropertyName("note")]
+    public string? Note { get; set; }
 }
 
 /// <summary>
-/// 单个仓条目
+/// v4 registry 单仓条目（全部仓显式登记，含包仓与第三方重打包）。
+/// 不映射 titles：真实 registry 存在 string 简写形式（64 条），映射为字典会解析失败，且 workspace 管道不消费标题（标题由导出链路 RepoRegistryProvider 实时解析）。
 /// </summary>
 public sealed class RepoEntry
 {
+    /// <summary>
+    /// 仓标识；包仓直接用包名（含点），普通仓用 kebab-case 短名
+    /// </summary>
     [JsonPropertyName("alias")]
     public string? Alias { get; set; }
-
-    [JsonPropertyName("repoKey")]
-    public string? RepoKey { get; set; }
-
-    [JsonPropertyName("gitUrl")]
-    public string? GitUrl { get; set; }
-
-    [JsonPropertyName("localPath")]
-    public string? LocalPath { get; set; }
-
-    [JsonPropertyName("domain")]
-    public string? Domain { get; set; }
-
-    [JsonPropertyName("branch")]
-    public string? Branch { get; set; }
 
     [JsonPropertyName("active")]
     public bool Active { get; set; } = true;
 
-    [JsonPropertyName("displayOrder")]
-    public int DisplayOrder { get; set; }
+    [JsonPropertyName("gitUrl")]
+    public string? GitUrl { get; set; }
+
+    /// <summary>
+    /// 自动生成文档落盘目录（相对 docs/&lt;lang&gt;/），components 域下可含 packageTreeRule 展开的子目录
+    /// </summary>
+    [JsonPropertyName("docPath")]
+    public string? DocPath { get; set; }
+
+    /// <summary>
+    /// 第三方重打包的上游仓溯源；仅重打包仓使用
+    /// </summary>
+    [JsonPropertyName("upstream")]
+    public string? Upstream { get; set; }
 
     [JsonPropertyName("note")]
     public string? Note { get; set; }
 
     /// <summary>
-    /// 规范化后的 RepoKey：优先 repoKey 字段，否则 alias。
+    /// 规范化后的 RepoKey：v4 无独立 repoKey 字段，直接用 alias。
     /// </summary>
     [JsonIgnore]
-    public string? NormalizedRepoKey => string.IsNullOrWhiteSpace(RepoKey) ? Alias : RepoKey;
+    public string? NormalizedRepoKey => Alias;
 }
 
 /// <summary>
