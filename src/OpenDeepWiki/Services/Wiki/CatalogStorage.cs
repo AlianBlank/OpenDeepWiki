@@ -230,10 +230,25 @@ public class CatalogStorage
     /// </summary>
     private async Task CreateCatalogItemsAsync(List<CatalogItem> items, string? parentId, CancellationToken cancellationToken)
     {
+        await CreateCatalogItemsAsync(items, parentId, new HashSet<string>(StringComparer.Ordinal), cancellationToken);
+    }
+
+    /// <summary>
+    /// batchPaths 跨层级共享本批已落库/复用的 path：数据库查询看不到本批未保存的 Add，
+    /// 归一化后同 path 的第二个节点必须在此去重，否则撞 (BranchLanguageId, Path) 唯一索引。
+    /// </summary>
+    private async Task CreateCatalogItemsAsync(List<CatalogItem> items, string? parentId, HashSet<string> batchPaths, CancellationToken cancellationToken)
+    {
         foreach (var item in items)
         {
             // 归一化：末段为 index 的 path 截掉末段（tasks/index → tasks），避免与同名域根形成双胞胎节点
             var path = NormalizeCatalogPath(item.Path);
+
+            // 本批已处理过该 path（如 tasks/index 与 tasks 归一化后重复），跳过
+            if (!batchPaths.Add(path))
+            {
+                continue;
+            }
 
             // Check if a record with the same path exists (including soft-deleted)
             var existingCatalog = await _context.DocCatalogs
@@ -274,7 +289,7 @@ public class CatalogStorage
 
             if (item.Children.Count > 0)
             {
-                await CreateCatalogItemsAsync(item.Children, catalogId, cancellationToken);
+                await CreateCatalogItemsAsync(item.Children, catalogId, batchPaths, cancellationToken);
             }
         }
     }
