@@ -26,7 +26,7 @@ export const uiLocales = [
 
 export type UiLocale = (typeof uiLocales)[number];
 
-export const defaultUiLocale: UiLocale = "en";
+export const defaultUiLocale: UiLocale = "zh";
 
 export const uiLocaleNames: Record<UiLocale, string> = {
   zh: "简体中文",
