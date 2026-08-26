@@ -19,8 +19,6 @@ public sealed class AiProviderPresetSeeder : IAiProviderPresetSeeder
     private static readonly IReadOnlyDictionary<string, string> OpenCoworkProviderIconUrls =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            ["routin-ai"] = "https://routin.ai/icons/favicon.ico",
-            ["routin-ai-plan"] = "https://routin.ai/icons/favicon.ico",
             ["copilot-oauth"] = "https://github.githubassets.com/favicons/favicon.png"
         };
 
