@@ -98,6 +98,12 @@ public class TranslationWorker : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
+            // AI 配额熔断打开时停止继续领取（前一个任务可能刚触发熔断）
+            if (_quotaBreaker.IsOpen)
+            {
+                break;
+            }
+
             var task = await translationService.GetNextPendingTaskAsync(stoppingToken);
             if (task == null)
             {
