@@ -236,6 +236,14 @@ public class RepositoryProcessingWorker(
                         "Repository processing hit AI quota limit, keep Pending for retry after breaker reopens. RepositoryId: {RepositoryId}, Repository: {Org}/{Repo}",
                         repository.Id, repository.OrgName, repository.RepoName);
                 }
+                else if (TransientNetworkErrorDetector.IsTransient(ex))
+                {
+                    // 网络瞬态错误（clone/pull 连接超时、DNS 失败等）：保持 Pending，下轮轮询自动重试
+                    repository.Status = RepositoryStatus.Pending;
+                    logger.LogWarning(
+                        "Repository processing hit transient network error, keep Pending for retry. RepositoryId: {RepositoryId}, Repository: {Org}/{Repo}, Error: {Error}",
+                        repository.Id, repository.OrgName, repository.RepoName, ex.Message);
+                }
                 else
                 {
                     // Transition to Failed status
