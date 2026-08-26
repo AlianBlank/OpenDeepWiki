@@ -1183,6 +1183,7 @@ export default function AdminAiProvidersPage() {
                   placeholder={t("admin.aiProviders.searchProvidersPlaceholder")}
                   value={searchQuery}
                   onChange={(event) => setSearchQuery(event.target.value)}
+                  autoComplete="off"
                   className="h-7 rounded-md border-0 bg-[#242424] pl-8 text-xs text-[#e8e8e8] shadow-none placeholder:text-[#777780] focus-visible:ring-1 focus-visible:ring-[#4a4a4a]"
                 />
               </div>
@@ -1294,6 +1295,7 @@ export default function AdminAiProvidersPage() {
                       <div className="relative">
                         <Input
                           type={showApiKey ? "text" : "password"}
+                          autoComplete="new-password"
                           placeholder={
                             selectedProvider.hasApiKey
                               ? t("admin.aiProviders.apiKey.keepExistingPlaceholder")
