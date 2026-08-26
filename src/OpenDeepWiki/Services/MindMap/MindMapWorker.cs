@@ -19,14 +19,17 @@ public class MindMapWorker : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<MindMapWorker> _logger;
+    private readonly AiQuotaCircuitBreaker _quotaBreaker;
     private static readonly TimeSpan PollingInterval = TimeSpan.FromSeconds(30);
 
     public MindMapWorker(
         IServiceScopeFactory scopeFactory,
-        ILogger<MindMapWorker> logger)
+        ILogger<MindMapWorker> logger,
+        AiQuotaCircuitBreaker quotaBreaker)
     {
         _scopeFactory = scopeFactory;
         _logger = logger;
+        _quotaBreaker = quotaBreaker;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -72,6 +75,12 @@ public class MindMapWorker : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
+            // AI 配额熔断打开时不领取新思维导图任务（等待冷却/配额恢复）
+            if (_quotaBreaker.IsOpen)
+            {
+                break;
+            }
+
             // 查询已完成处理但思维导图状态为 Pending 或 Failed 的分支语言
             var branchLanguage = await context.BranchLanguages
                 .Include(bl => bl.RepositoryBranch)
@@ -179,6 +188,9 @@ public class MindMapWorker : BackgroundService
             _logger.LogError(ex,
                 "MindMap generation failed. BranchLanguageId: {BranchLanguageId}, Duration: {Duration}ms",
                 branchLanguage.Id, stopwatch.ElapsedMilliseconds);
+
+            // AI 配额不足时打开熔断，冷却期停止领取，避免欠费/限流期间空转
+            _quotaBreaker.Trip(ex);
 
             // 记录失败（MindMapStatus 已在 WikiGenerator.GenerateMindMapAsync 中更新）
             if (processingLogService != null)
