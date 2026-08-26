@@ -45,7 +45,11 @@ public class LoggingHttpHandler(HttpMessageHandler innerHandler) : DelegatingHan
                 // 如果是重试，需要克隆请求（因为原请求可能已被消费）
                 var requestToSend = attempt == 1 ? request : await CloneRequestAsync(request);
 
-                response = await base.SendAsync(requestToSend, cancellationToken);
+                // 全局渠道并发闸：重试等待（Task.Delay）期间不占名额
+                using (await AiConcurrencyGate.AcquireAsync(request.RequestUri?.Host, cancellationToken))
+                {
+                    response = await base.SendAsync(requestToSend, cancellationToken);
+                }
 
                 // 检查是否需要重试
                 if (ShouldRetry(response.StatusCode) && attempt < MaxRetryAttempts)

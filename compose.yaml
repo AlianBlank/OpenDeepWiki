@@ -96,6 +96,8 @@ services:
       - GameFrameX__QuotaBreaker__Enabled=${GFX_QUOTA_BREAKER_ENABLED:-true}
       - GameFrameX__QuotaBreaker__InitialCooldownSeconds=${GFX_QUOTA_INITIAL_COOLDOWN_SECONDS:-300}
       - GameFrameX__QuotaBreaker__MaxCooldownSeconds=${GFX_QUOTA_MAX_COOLDOWN_SECONDS:-3600}
+      # AI 渠道全局并发闸：同一 provider 的所有 AI 请求（生成/翻译/对话）共享并发上限，防止打满触发 429；0=不限制
+      - GFX_AI_GATE_MAX_CONCURRENCY=${GFX_AI_GATE_MAX_CONCURRENCY:-2}
     volumes:
       # 持久化数据（SQLite 库与仓库工作区）
       - ./data:/data
