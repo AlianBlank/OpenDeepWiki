@@ -25,7 +25,7 @@ public class RepositoryBranch : AggregateRoot<string>
     /// <summary>
     /// 最后处理的 commit ID
     /// </summary>
-    [StringLength(40)]
+    [StringLength(64)]
     public string? LastCommitId { get; set; }
 
     /// <summary>

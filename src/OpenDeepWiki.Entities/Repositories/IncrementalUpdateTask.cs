@@ -57,13 +57,13 @@ public class IncrementalUpdateTask : AggregateRoot<string>
     /// <summary>
     /// 上次处理的 Commit ID
     /// </summary>
-    [StringLength(40)]
+    [StringLength(64)]
     public string? PreviousCommitId { get; set; }
 
     /// <summary>
     /// 当前目标 Commit ID
     /// </summary>
-    [StringLength(40)]
+    [StringLength(64)]
     public string? TargetCommitId { get; set; }
 
     /// <summary>

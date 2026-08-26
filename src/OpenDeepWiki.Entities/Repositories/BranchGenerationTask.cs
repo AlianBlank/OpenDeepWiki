@@ -46,7 +46,7 @@ public class BranchGenerationTask : AggregateRoot<string>
     [StringLength(36)]
     public string? RequestedBy { get; set; }
 
-    [StringLength(40)]
+    [StringLength(64)]
     public string? TargetCommitId { get; set; }
 
     [ForeignKey("RepositoryId")]
