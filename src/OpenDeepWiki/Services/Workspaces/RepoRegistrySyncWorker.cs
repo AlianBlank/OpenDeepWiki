@@ -96,9 +96,9 @@ public class RepoRegistrySyncWorker : BackgroundService
             return;
         }
 
+        // 注意不过滤软删除：唯一索引 (OrgName, RepoName) 含软删行，过滤会导致删后重新入库撞索引
         var existingNames = await context.Repositories
             .AsNoTracking()
-            .Where(r => !r.IsDeleted)
             .Select(r => r.RepoName)
             .ToListAsync(cancellationToken);
 
