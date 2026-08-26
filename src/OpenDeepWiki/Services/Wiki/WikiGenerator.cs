@@ -204,9 +204,9 @@ Remember to call WriteMindMapAsync with the complete mind map content.
 
 {repoContext.ReadmeContent}";
 
-            var catalogAi = await ResolveCatalogModelAsync(cancellationToken);
-            await ExecuteAgentWithRetryAsync(
-                catalogAi,
+            var catalogChain = await ResolveCatalogModelChainAsync(cancellationToken);
+            await ExecuteAgentWithModelChainAsync(
+                catalogChain,
                 prompt,
                 userMessage,
                 tools,
@@ -217,7 +217,7 @@ Remember to call WriteMindMapAsync with the complete mind map content.
                     "仓库思维导图生成",
                     workspace,
                     branchLanguage,
-                    modelId: catalogAi.ModelId),
+                    modelId: catalogChain[0].ModelId),
                 cancellationToken);
 
             stopwatch.Stop();
@@ -321,9 +321,9 @@ Execute the workflow now. The runtime context already contains the directory tre
 
 {repoContext.ReadmeContent}";
 
-            var catalogAi = await ResolveCatalogModelAsync(cancellationToken);
-            await ExecuteAgentWithRetryAsync(
-                catalogAi,
+            var catalogChain = await ResolveCatalogModelChainAsync(cancellationToken);
+            await ExecuteAgentWithModelChainAsync(
+                catalogChain,
                 prompt,
                 userMessage,
                 tools,
@@ -334,7 +334,7 @@ Execute the workflow now. The runtime context already contains the directory tre
                     "仓库目录生成",
                     workspace,
                     branchLanguage,
-                    modelId: catalogAi.ModelId),
+                    modelId: catalogChain[0].ModelId),
                 cancellationToken);
 
             var catalogItemCount = await _context.DocCatalogs
@@ -775,9 +775,9 @@ Execute the workflow now. The runtime context already contains the directory tre
 
 Please start executing the task.";
 
-            var contentAi = await ResolveContentModelAsync(cancellationToken);
-            await ExecuteAgentWithRetryAsync(
-                contentAi,
+            var contentChain = await ResolveContentModelChainAsync(cancellationToken);
+            await ExecuteAgentWithModelChainAsync(
+                contentChain,
                 prompt,
                 userMessage,
                 tools,
@@ -788,7 +788,7 @@ Please start executing the task.";
                     "仓库增量文档更新",
                     workspace,
                     branchLanguage,
-                    modelId: contentAi.ModelId),
+                    modelId: contentChain[0].ModelId),
                 cancellationToken);
 
             stopwatch.Stop();
@@ -924,7 +924,7 @@ Please start executing the task.";
 
 Please start executing the task.";
 
-            var contentAi = await ResolveContentModelAsync(cancellationToken);
+            var contentChain = await ResolveContentModelChainAsync(cancellationToken);
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -954,8 +954,8 @@ Please start executing the task.";
                     _options.MaxDocumentToolCalls);
 
                 var attemptStartedAt = DateTime.UtcNow.AddSeconds(-1);
-                var exploration = await ExecuteAgentWithRetryAsync(
-                    contentAi,
+                var exploration = await ExecuteAgentWithModelChainAsync(
+                    contentChain,
                     prompt,
                     userMessage,
                     tools,
@@ -967,7 +967,7 @@ Please start executing the task.";
                         workspace,
                         branchLanguage,
                         catalogPath,
-                        contentAi.ModelId),
+                        contentChain[0].ModelId),
                     cancellationToken,
                     maxToolCallsBeforeEarlyCompletion: _options.MaxDocumentToolCalls,
                     earlyCompletionCheck: ct => HasPersistedDocumentContentAsync(
@@ -990,8 +990,8 @@ Please start executing the task.";
                 {
                     var readFileTool = gitTool.GetTools()
                         .Single(tool => string.Equals(tool.Name, "ReadFile", StringComparison.Ordinal));
-                    var grounding = await ExecuteAgentWithRetryAsync(
-                        contentAi,
+                    var grounding = await ExecuteAgentWithModelChainAsync(
+                        contentChain,
                         prompt,
                         $"Select the source file most relevant to '{catalogTitle}' and call ReadFile exactly once.",
                         [readFileTool],
@@ -1003,7 +1003,7 @@ Please start executing the task.";
                             workspace,
                             branchLanguage,
                             catalogPath,
-                            contentAi.ModelId),
+                            contentChain[0].ModelId),
                         cancellationToken,
                         toolMode: ChatToolMode.RequireSpecific("ReadFile"));
                     groundingText = grounding.AssistantText;
@@ -1040,8 +1040,8 @@ Please start executing the task.";
                         _options.MaxDocumentAppendOperations)
                     .GetTools()
                     .Single(tool => string.Equals(tool.Name, "WriteDoc", StringComparison.Ordinal));
-                var forcedWrite = await ExecuteAgentWithRetryAsync(
-                    contentAi,
+                var forcedWrite = await ExecuteAgentWithModelChainAsync(
+                    contentChain,
                     prompt,
                     $@"Call WriteDoc exactly once with the complete Markdown document for '{catalogPath}'.
 
@@ -1059,7 +1059,7 @@ Source grounding:
                         workspace,
                         branchLanguage,
                         catalogPath,
-                        contentAi.ModelId),
+                        contentChain[0].ModelId),
                     cancellationToken,
                     toolMode: ChatToolMode.RequireSpecific("WriteDoc"));
 
@@ -1256,20 +1256,67 @@ Source grounding:
             .ToListAsync(cancellationToken);
     }
 
-    private Task<ResolvedAiModel> ResolveCatalogModelAsync(CancellationToken cancellationToken)
+    private Task<IReadOnlyList<ResolvedAiModel>> ResolveCatalogModelChainAsync(CancellationToken cancellationToken)
     {
-        return _aiProviderResolver.ResolveAsync(
-            _options.CatalogProviderId,
-            _options.CatalogModel,
-            cancellationToken);
+        return ResolveModelChainAsync(
+            _options.CatalogProviderId, _options.CatalogModel, _options.CatalogFallbackModels, cancellationToken);
     }
 
-    private Task<ResolvedAiModel> ResolveContentModelAsync(CancellationToken cancellationToken)
+    private Task<IReadOnlyList<ResolvedAiModel>> ResolveContentModelChainAsync(CancellationToken cancellationToken)
     {
-        return _aiProviderResolver.ResolveAsync(
-            _options.ContentProviderId,
-            _options.ContentModel,
-            cancellationToken);
+        return ResolveModelChainAsync(
+            _options.ContentProviderId, _options.ContentModel, _options.ContentFallbackModels, cancellationToken);
+    }
+
+    /// <summary>
+    /// 解析"主模型 + 备选链"：主模型解析失败直接抛（维持原语义）；
+    /// 备选项（providerId:modelId）解析失败仅告警并跳过，不阻断生成。
+    /// </summary>
+    private async Task<IReadOnlyList<ResolvedAiModel>> ResolveModelChainAsync(
+        string? primaryProviderId,
+        string? primaryModel,
+        string? fallbackSetting,
+        CancellationToken cancellationToken)
+    {
+        var chain = new List<ResolvedAiModel>
+        {
+            await _aiProviderResolver.ResolveAsync(primaryProviderId, primaryModel, cancellationToken)
+        };
+
+        foreach (var (providerId, modelId) in ParseModelPairs(fallbackSetting))
+        {
+            try
+            {
+                chain.Add(await _aiProviderResolver.ResolveAsync(providerId, modelId, cancellationToken));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex, "解析备选模型失败，已跳过。Provider: {Provider}, Model: {Model}", providerId, modelId);
+            }
+        }
+
+        return chain;
+    }
+
+    /// <summary>解析逗号分隔的 "providerId:modelId" 备选模型配置（无效项跳过）。</summary>
+    internal static IEnumerable<(string ProviderId, string ModelId)> ParseModelPairs(string? setting)
+    {
+        if (string.IsNullOrWhiteSpace(setting))
+        {
+            yield break;
+        }
+
+        foreach (var raw in setting.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var separatorIndex = raw.IndexOf(':');
+            if (separatorIndex <= 0 || separatorIndex >= raw.Length - 1)
+            {
+                continue;
+            }
+
+            yield return (raw[..separatorIndex], raw[(separatorIndex + 1)..]);
+        }
     }
 
     private Task<ResolvedAiModel> ResolveTranslationModelAsync(CancellationToken cancellationToken)
@@ -1280,6 +1327,57 @@ Source grounding:
                 : _options.TranslationProviderId,
             _options.GetTranslationModel(),
             cancellationToken);
+    }
+
+    /// <summary>
+    /// Executes an AI agent against a model chain: when a model exhausts its quota
+    /// (HTTP 429/402 or quota-related errors) after retries, execution falls through
+    /// to the next model in the chain. The last model's failure propagates unchanged;
+    /// cancellation (e.g. generation window close) is never swallowed.
+    /// </summary>
+    private async Task<AgentExecutionResult> ExecuteAgentWithModelChainAsync(
+        IReadOnlyList<ResolvedAiModel> modelChain,
+        string systemPrompt,
+        string userMessage,
+        AITool[] tools,
+        string operationName,
+        ProcessingStep step,
+        AiExecutionContext executionContext,
+        CancellationToken cancellationToken,
+        int? maxToolCallsBeforeEarlyCompletion = null,
+        Func<CancellationToken, Task<bool>>? earlyCompletionCheck = null,
+        ChatToolMode? toolMode = null)
+    {
+        for (var i = 0; i < modelChain.Count; i++)
+        {
+            try
+            {
+                return await ExecuteAgentWithRetryAsync(
+                    modelChain[i],
+                    systemPrompt,
+                    userMessage,
+                    tools,
+                    operationName,
+                    step,
+                    executionContext,
+                    cancellationToken,
+                    maxToolCallsBeforeEarlyCompletion,
+                    earlyCompletionCheck,
+                    toolMode);
+            }
+            catch (Exception ex) when (i < modelChain.Count - 1
+                                       && ex is not OperationCanceledException
+                                       && AiQuotaCircuitBreaker.IsQuotaError(ex))
+            {
+                _logger.LogWarning(
+                    "模型配额不足，切换到备选模型继续。Operation: {Operation}, {FailedProvider}/{FailedModel} -> {NextProvider}/{NextModel}",
+                    operationName,
+                    modelChain[i].ProviderName, modelChain[i].ModelId,
+                    modelChain[i + 1].ProviderName, modelChain[i + 1].ModelId);
+            }
+        }
+
+        throw new UnreachableException("Model chain must return or throw within the loop.");
     }
 
     /// <summary>

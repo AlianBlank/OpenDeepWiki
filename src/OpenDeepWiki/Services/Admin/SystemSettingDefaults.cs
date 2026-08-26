@@ -14,6 +14,9 @@ public static class SystemSettingDefaults
     public const string WikiContentModelId = "WIKI_CONTENT_MODEL_ID";
     public const string WikiTranslationProviderId = "WIKI_TRANSLATION_PROVIDER_ID";
     public const string WikiTranslationModelId = "WIKI_TRANSLATION_MODEL_ID";
+    public const string WikiCatalogFallbackModels = "WIKI_CATALOG_FALLBACK_MODELS";
+    public const string WikiContentFallbackModels = "WIKI_CONTENT_FALLBACK_MODELS";
+    public const string WikiTranslationFallbackModels = "WIKI_TRANSLATION_FALLBACK_MODELS";
     public const string GraphifyProviderId = "GRAPHIFY_PROVIDER_ID";
     public const string GraphifyModelId = "GRAPHIFY_MODEL_ID";
 
@@ -25,6 +28,9 @@ public static class SystemSettingDefaults
         (WikiContentModelId, "ai", "AI model used for content generation"),
         (WikiTranslationProviderId, "ai", "AI provider used for translation"),
         (WikiTranslationModelId, "ai", "AI model used for translation"),
+        (WikiCatalogFallbackModels, "ai", "Fallback models for catalog/mind map when quota exhausted (comma-separated providerId:modelId)"),
+        (WikiContentFallbackModels, "ai", "Fallback models for content when quota exhausted (comma-separated providerId:modelId)"),
+        (WikiTranslationFallbackModels, "ai", "Fallback models for translation when quota exhausted (comma-separated providerId:modelId)"),
         (GraphifyProviderId, "ai", "AI provider used for Graphify community labels"),
         (GraphifyModelId, "ai", "AI model used for Graphify community labels"),
         ("WIKI_LANGUAGES", "ai", "Supported languages (comma-separated)"),
@@ -123,6 +129,9 @@ public static class SystemSettingDefaults
             WikiContentModelId => options.ContentModel,
             WikiTranslationProviderId => options.TranslationProviderId,
             WikiTranslationModelId => options.TranslationModel,
+            WikiCatalogFallbackModels => options.CatalogFallbackModels,
+            WikiContentFallbackModels => options.ContentFallbackModels,
+            WikiTranslationFallbackModels => options.TranslationFallbackModels,
             "WIKI_LANGUAGES" => options.Languages,
             "WIKI_PARALLEL_COUNT" => options.ParallelCount.ToString(),
             "WIKI_MAX_OUTPUT_TOKENS" => options.MaxOutputTokens.ToString(),
@@ -168,6 +177,15 @@ public static class SystemSettingDefaults
                 break;
             case WikiTranslationModelId:
                 options.TranslationModel = value;
+                break;
+            case WikiCatalogFallbackModels:
+                options.CatalogFallbackModels = value;
+                break;
+            case WikiContentFallbackModels:
+                options.ContentFallbackModels = value;
+                break;
+            case WikiTranslationFallbackModels:
+                options.TranslationFallbackModels = value;
                 break;
             case "WIKI_LANGUAGES":
                 options.Languages = value;

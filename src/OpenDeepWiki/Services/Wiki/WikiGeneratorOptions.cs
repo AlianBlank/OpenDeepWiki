@@ -169,6 +169,23 @@ public class WikiGeneratorOptions
     public string? TranslationProviderId { get; set; }
 
     /// <summary>
+    /// Fallback models for catalog/mind map generation, as a comma-separated list of
+    /// "providerId:modelId" pairs. When the primary model exhausts its quota (HTTP 429/402
+    /// or quota-related errors), generation switches to the next model in this list.
+    /// </summary>
+    public string? CatalogFallbackModels { get; set; }
+
+    /// <summary>
+    /// Fallback models for content generation. Same format as <see cref="CatalogFallbackModels"/>.
+    /// </summary>
+    public string? ContentFallbackModels { get; set; }
+
+    /// <summary>
+    /// Fallback models for translation. Same format as <see cref="CatalogFallbackModels"/>.
+    /// </summary>
+    public string? TranslationFallbackModels { get; set; }
+
+    /// <summary>
     /// Gets the list of target languages for translation (excluding the primary language).
     /// </summary>
     /// <param name="primaryLanguage">The primary language code to exclude.</param>

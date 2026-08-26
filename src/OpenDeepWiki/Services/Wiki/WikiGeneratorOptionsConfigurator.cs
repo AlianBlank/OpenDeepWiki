@@ -36,6 +36,19 @@ public static class WikiGeneratorOptionsConfigurator
             $"{WikiGeneratorOptions.SectionName}:TranslationModel",
             options.TranslationModel);
 
+        options.CatalogFallbackModels = ResolveStringValue(
+            configuration,
+            $"{WikiGeneratorOptions.SectionName}:CatalogFallbackModels",
+            options.CatalogFallbackModels);
+        options.ContentFallbackModels = ResolveStringValue(
+            configuration,
+            $"{WikiGeneratorOptions.SectionName}:ContentFallbackModels",
+            options.ContentFallbackModels);
+        options.TranslationFallbackModels = ResolveStringValue(
+            configuration,
+            $"{WikiGeneratorOptions.SectionName}:TranslationFallbackModels",
+            options.TranslationFallbackModels);
+
         options.Languages = ResolveStringValue(
             configuration,
             $"{WikiGeneratorOptions.SectionName}:Languages",
