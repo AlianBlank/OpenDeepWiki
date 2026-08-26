@@ -59,7 +59,7 @@ namespace OpenDeepWiki.Agents
 
     public class AgentFactory(IOptions<AiRequestOptions> options)
     {
-        private const string DefaultEndpoint = "https://api.routin.ai/v1";
+        private const string DefaultEndpoint = "https://open.bigmodel.cn/api/paas/v4";
         private readonly AiRequestOptions? _options = options?.Value;
 
         /// <summary>
