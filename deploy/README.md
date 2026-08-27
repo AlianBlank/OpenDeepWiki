@@ -1,7 +1,8 @@
 # OpenDeepWiki · HK 公网部署
 
 连接已有远程 PG，3 容器：`opendeepwiki`（生成/导出）、`docs-sync`（Docs 仓自动 commit+push）、
-`web`（管理后台，经宿主 nginx 反代对外）。
+`web`（管理后台）。入口是 host 网络的 OpenResty 容器，直接反代宿主回环 `127.0.0.1:13000`；
+web/API 端口只绑回环，公网物理不可达，无需防火墙规则。
 
 ## 链路
 
@@ -36,10 +37,15 @@
 
 ```bash
 mkdir -p ~/odw && cd ~/odw          # 放入本目录所有文件
-cp .env.example .env && vim .env    # 填 5 组必填
-sudo cp nginx/odw.conf.example /etc/nginx/conf.d/odw.conf && sudo nginx -s reload
+cp .env.example .env && vim .env    # 填必填
 docker compose up -d
+
+# 把 nginx/odw.conf.example 内容（改域名/证书路径）放进 OpenResty 挂载的配置目录，然后：
+docker exec <openresty容器名> nginx -t && docker exec <openresty容器名> nginx -s reload
 ```
+
+> 注：OpenResty 为 host 网络，容器内 127.0.0.1 即宿主回环；web/API 端口仅绑回环，
+> 公网物理不可达，无需任何防火墙规则。
 
 ## 验证
 
