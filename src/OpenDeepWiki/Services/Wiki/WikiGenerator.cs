@@ -1856,18 +1856,9 @@ Source grounding:
 
         try
         {
-            // 1. 创建目标语言的BranchLanguage
-            var targetBranchLanguage = new BranchLanguage
-            {
-                Id = Guid.NewGuid().ToString(),
-                RepositoryBranchId = sourceBranchLanguage.RepositoryBranchId,
-                LanguageCode = targetLanguageCode.ToLowerInvariant()
-            };
-            _context.BranchLanguages.Add(targetBranchLanguage);
-            await _context.SaveChangesAsync(cancellationToken);
-
-            _logger.LogDebug("Created target BranchLanguage. Id: {Id}, LanguageCode: {LanguageCode}",
-                targetBranchLanguage.Id, targetBranchLanguage.LanguageCode);
+            // 1. 获取或创建目标语言的BranchLanguage（任务重试/续跑时目标行已存在，存在即复用）
+            var targetBranchLanguage = await GetOrCreateTargetBranchLanguageAsync(
+                _context, sourceBranchLanguage.RepositoryBranchId, targetLanguageCode, _logger, cancellationToken);
 
             // 2. 获取源语言的目录结构
             var sourceCatalogStorage = new CatalogStorage(_context, sourceBranchLanguage.Id);
@@ -1952,7 +1943,7 @@ Source grounding:
             }
 
             // 7. 并行执行 AI 翻译（IO 密集型操作）
-            var translationResults = new ConcurrentBag<(DocCatalog TargetCatalog, DocFile NewDocFile)?>();
+            var translationResults = new ConcurrentBag<(DocCatalog TargetCatalog, string Content)?>();
 
             var parallelOptions = new ParallelOptions
             {
@@ -1982,14 +1973,7 @@ Source grounding:
                     // 清理 <think> 标签
                     translatedContent = RemoveThinkTags(translatedContent);
 
-                    var newDocFile = new DocFile
-                    {
-                        Id = Guid.NewGuid().ToString(),
-                        BranchLanguageId = targetBranchLanguage.Id,
-                        Content = translatedContent
-                    };
-
-                    translationResults.Add((task.TargetCatalog!, newDocFile));
+                    translationResults.Add((task.TargetCatalog!, translatedContent));
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested)
                 {
@@ -2020,11 +2004,45 @@ Source grounding:
             });
 
             // 8. 批量保存翻译结果（单线程 EF Core 操作）
+            // 重跑时目标目录已挂上一轮的文档（DocFileId 非空）：复用该行就地更新，与 DocTool.WriteDoc 语义一致，
+            // 避免每次重跑都新增一整套重复文档
+            var existingDocFileIds = translationTasks
+                .Select(t => t.TargetCatalog.DocFileId)
+                .Where(id => !string.IsNullOrEmpty(id))
+                .Select(id => id!)
+                .Distinct()
+                .ToList();
+
+            var existingDocFiles = new Dictionary<string, DocFile>();
+            if (existingDocFileIds.Count > 0)
+            {
+                existingDocFiles = await _context.DocFiles
+                    .Where(d => existingDocFileIds.Contains(d.Id) && !d.IsDeleted)
+                    .ToDictionaryAsync(d => d.Id, cancellationToken);
+            }
+
             foreach (var result in translationResults.Where(r => r != null))
             {
-                _context.DocFiles.Add(result!.Value.NewDocFile);
-                result.Value.TargetCatalog.DocFileId = result.Value.NewDocFile.Id;
-                result.Value.TargetCatalog.UpdateTimestamp();
+                var targetCatalog = result!.Value.TargetCatalog;
+                if (!string.IsNullOrEmpty(targetCatalog.DocFileId) &&
+                    existingDocFiles.TryGetValue(targetCatalog.DocFileId!, out var existingDocFile))
+                {
+                    existingDocFile.Content = result.Value.Content;
+                    existingDocFile.UpdateTimestamp();
+                }
+                else
+                {
+                    var newDocFile = new DocFile
+                    {
+                        Id = Guid.NewGuid().ToString(),
+                        BranchLanguageId = targetBranchLanguage.Id,
+                        Content = result.Value.Content
+                    };
+                    _context.DocFiles.Add(newDocFile);
+                    targetCatalog.DocFileId = newDocFile.Id;
+                }
+
+                targetCatalog.UpdateTimestamp();
             }
 
             // 9. 翻译思维导图（如果存在）
@@ -2074,6 +2092,54 @@ Source grounding:
                 workspace.Organization, workspace.RepositoryName, targetLanguageCode, stopwatch.ElapsedMilliseconds);
             throw;
         }
+    }
+
+    /// <summary>
+    /// 获取或创建目标语言的BranchLanguage。
+    /// 翻译任务重试/续跑时目标行已存在，直接插入会撞 (RepositoryBranchId, LanguageCode) 唯一索引（23505），存在即复用；
+    /// 软删行同样占用唯一索引，复用时一并恢复。
+    /// </summary>
+    internal static async Task<BranchLanguage> GetOrCreateTargetBranchLanguageAsync(
+        IContext context,
+        string repositoryBranchId,
+        string targetLanguageCode,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        var normalizedLanguageCode = targetLanguageCode.ToLowerInvariant();
+        var existing = await context.BranchLanguages
+            .FirstOrDefaultAsync(l =>
+                l.RepositoryBranchId == repositoryBranchId &&
+                l.LanguageCode == normalizedLanguageCode,
+                cancellationToken);
+
+        if (existing != null)
+        {
+            if (existing.IsDeleted)
+            {
+                existing.IsDeleted = false;
+                existing.UpdateTimestamp();
+                await context.SaveChangesAsync(cancellationToken);
+            }
+
+            logger.LogInformation(
+                "Reusing existing target BranchLanguage. Id: {Id}, LanguageCode: {LanguageCode}",
+                existing.Id, existing.LanguageCode);
+            return existing;
+        }
+
+        var created = new BranchLanguage
+        {
+            Id = Guid.NewGuid().ToString(),
+            RepositoryBranchId = repositoryBranchId,
+            LanguageCode = normalizedLanguageCode
+        };
+        context.BranchLanguages.Add(created);
+        await context.SaveChangesAsync(cancellationToken);
+
+        logger.LogDebug("Created target BranchLanguage. Id: {Id}, LanguageCode: {LanguageCode}",
+            created.Id, created.LanguageCode);
+        return created;
     }
 
     /// <summary>
