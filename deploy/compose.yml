@@ -1,0 +1,117 @@
+# OpenDeepWiki · HK 公网部署（连接已有远程 PG）
+# 用法：cp .env.example .env && 编辑 -> docker compose up -d
+# 架构：nginx(宿主,443) -> web(127.0.0.1:13000) --/api代理--> opendeepwiki:8080
+#       opendeepwiki 导出 -> ./gfx-docs <- docs-sync 轮询 commit+push -> GitHub Docs 仓
+name: opendeepwiki
+
+services:
+  opendeepwiki:
+    # 镜像由 .github/workflows/docker-image.yml（push main）构建并推到 GHCR
+    image: ${IMAGE_BACKEND:-ghcr.io/alianblank/opendeepwiki:latest}
+    restart: unless-stopped
+    user: "0:0"
+    ports:
+      # 仅本机（nginx 不走它，curl 手动调 API 用）
+      - "127.0.0.1:${HOST_API_PORT:-18081}:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - URLS=http://+:8080
+      - Database__Type=postgresql
+      # 已有远程 PG；密码避免 ; @ 等特殊字符
+      - ConnectionStrings__Default=${CONNECTION_STRING:?请在 .env 设置}
+      # 正确的 JWT 覆盖键是 Jwt__SecretKey（__ 嵌套写法，优先级高于 appsettings.json）
+      # 注意：老写法 JWT_SECRET_KEY 不生效，appsettings 默认串会在公网裸奔
+      - Jwt__SecretKey=${JWT_SECRET:?请在 .env 设置强随机串}
+      - REPOSITORIES_DIRECTORY=/data
+      # ---------- AI：连已有库时以 Admin 后台配置为准，以下仅作绑定失效时修复兜底 ----------
+      - CHAT_API_KEY=${CHAT_API_KEY:-}
+      - ENDPOINT=${ENDPOINT:-}
+      - CHAT_REQUEST_TYPE=${CHAT_REQUEST_TYPE:-OpenAI}
+      - WIKI_CATALOG_MODEL=${WIKI_CATALOG_MODEL:-}
+      - WIKI_CATALOG_ENDPOINT=${WIKI_CATALOG_ENDPOINT:-}
+      - WIKI_CATALOG_API_KEY=${WIKI_CATALOG_API_KEY:-}
+      - WIKI_CONTENT_MODEL=${WIKI_CONTENT_MODEL:-}
+      - WIKI_CONTENT_ENDPOINT=${WIKI_CONTENT_ENDPOINT:-}
+      - WIKI_CONTENT_API_KEY=${WIKI_CONTENT_API_KEY:-}
+      - WIKI_TRANSLATION_MODEL=${WIKI_TRANSLATION_MODEL:-}
+      - WIKI_TRANSLATION_ENDPOINT=${WIKI_TRANSLATION_ENDPOINT:-}
+      - WIKI_TRANSLATION_API_KEY=${WIKI_TRANSLATION_API_KEY:-}
+      - GRAPHIFY_MODEL=${GRAPHIFY_MODEL:-}
+      - GRAPHIFY_BACKEND=${GRAPHIFY_BACKEND:-}
+      - GRAPHIFY_OPENAI_BASE_URL=${GRAPHIFY_OPENAI_BASE_URL:-}
+      - GRAPHIFY_OPENAI_API_KEY=${GRAPHIFY_OPENAI_API_KEY:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+      - REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+      - GRAPHIFY_OUTPUT_ROOT=/data/graphify-artifacts
+      # ---------- Wiki 生成行为 ----------
+      - WIKI_PARALLEL_COUNT=${WIKI_PARALLEL_COUNT:-5}
+      - WIKI_LANGUAGES=${WIKI_LANGUAGES:-en,zh}
+      - RspressExport__OutputRoot=/host-gfx-docs/docs
+      # registry 从 Docs clone 读（docs-sync 首启自动 clone，自带 gfx-config/repo-registry.json）
+      - GameFrameX__RegistryPath=/host-gfx-docs/gfx-config/repo-registry.json
+      - GameFrameX__AutoSync__Enabled=${GFX_AUTOSYNC_ENABLED:-true}
+      - GameFrameX__AutoSync__IntervalSeconds=${GFX_AUTOSYNC_INTERVAL_SECONDS:-600}
+      - GameFrameX__AutoSync__MaxNewReposPerCycle=${GFX_AUTOSYNC_MAX_NEW_REPOS:-3}
+      - GameFrameX__AutoSync__DefaultLanguage=${GFX_AUTOSYNC_DEFAULT_LANGUAGE:-zh}
+      - GameFrameX__GenerationWindow__Enabled=${GFX_WINDOW_ENABLED:-true}
+      - GameFrameX__GenerationWindow__Start=${GFX_WINDOW_START:-23:00}
+      - GameFrameX__GenerationWindow__End=${GFX_WINDOW_END:-14:00}
+      - GameFrameX__GenerationWindow__TimeZone=${GFX_WINDOW_TIMEZONE:-Asia/Shanghai}
+      - GameFrameX__QuotaBreaker__Enabled=${GFX_QUOTA_BREAKER_ENABLED:-true}
+      - GameFrameX__QuotaBreaker__InitialCooldownSeconds=${GFX_QUOTA_INITIAL_COOLDOWN_SECONDS:-300}
+      - GameFrameX__QuotaBreaker__MaxCooldownSeconds=${GFX_QUOTA_MAX_COOLDOWN_SECONDS:-3600}
+      - GFX_AI_GATE_MAX_CONCURRENCY=${GFX_AI_GATE_MAX_CONCURRENCY:-2}
+    volumes:
+      - ./data:/data
+      - ./gfx-docs:/host-gfx-docs:rw
+
+  # Docs 仓自动同步：首启 clone，之后轮询导出产物 -> commit + push
+  docs-sync:
+    image: alpine/git:latest
+    restart: unless-stopped
+    depends_on:
+      - opendeepwiki
+    working_dir: /docs
+    environment:
+      - DOC_REPO_URL=${DOC_REPO_URL:?请在 .env 设置}
+      - DOC_REPO_USER=${DOC_REPO_USER:?请在 .env 设置}
+      - DOC_REPO_TOKEN=${DOC_REPO_TOKEN:?请在 .env 设置}
+    volumes:
+      - ./gfx-docs:/docs
+    entrypoint: ["/bin/sh", "-c"]
+    # ponytail: 120s 轮询可能把一次大导出拆成两个 commit（抓到半态）；无害，下轮补齐。
+    # 要原子提交 -> 升级为应用内 GitSync
+    command: |
+      git config --global --add safe.directory /docs
+      git config user.name  odw-bot
+      git config user.email odw-bot@users.noreply.github.com
+      AUTH="https://$${DOC_REPO_USER}:$${DOC_REPO_TOKEN}@$${DOC_REPO_URL#https://}"
+      until [ -d /docs/.git ]; do
+        git clone "$$AUTH" /docs || { echo "[docs-sync] clone 失败，15s 后重试"; sleep 15; }
+      done
+      # token 轮换后 docker compose restart docs-sync 生效
+      git remote set-url origin "$$AUTH"
+      while true; do
+        git pull --rebase --autostash --quiet || true
+        if [ -n "$$(git status --porcelain docs/)" ]; then
+          git add docs/
+          git commit -q -m "docs(sync): auto export $$(date -u +%FT%TZ)" || true
+          git push --quiet || echo "[docs-sync] push 失败，下轮重试"
+        fi
+        sleep 120
+      done
+
+  web:
+    image: ${IMAGE_WEB:-ghcr.io/alianblank/opendeepwiki-web:latest}
+    restart: unless-stopped
+    depends_on:
+      - opendeepwiki
+    ports:
+      # nginx 反代到这里；公网入口在宿主 nginx 443
+      - "127.0.0.1:${HOST_WEB_PORT:-13000}:3000"
+    environment:
+      - NODE_ENV=production
+      - SITE_URL=${SITE_URL:?请在 .env 设置完整域名}
+      - API_PROXY_URL=http://opendeepwiki:8080
