@@ -41,6 +41,8 @@ public class TranslationWorker : BackgroundService
         _logger.LogInformation("Translation worker started. Polling interval: {PollingInterval}s",
             PollingInterval.TotalSeconds);
 
+        await ReclaimOrphanedTasksAsync(stoppingToken);
+
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -104,6 +106,13 @@ public class TranslationWorker : BackgroundService
                 break;
             }
 
+            // 窗口关闭后不再领取新任务（粒度：当前任务跑完即停；已在 ProcessPendingTasksAsync
+            // 入口检查过，但内层循环连续领取会跨越窗口关闭时刻，这里补复查）
+            if (!_generationWindow.IsWithinWindow())
+            {
+                break;
+            }
+
             var task = await translationService.GetNextPendingTaskAsync(stoppingToken);
             if (task == null)
             {
@@ -121,6 +130,52 @@ public class TranslationWorker : BackgroundService
                 rspressExporter,
                 processingLogService,
                 stoppingToken);
+        }
+    }
+
+    /// <summary>
+    /// 启动时回收孤儿任务：进程中断（重启/崩溃）会把 Processing 任务永久遗留，
+    /// 而 GetNextPendingTaskAsync 只领取 Pending。单实例部署下 worker 启动时
+    /// 不存在真正进行中的翻译，Processing 一律重置回 Pending。
+    /// </summary>
+    private async Task ReclaimOrphanedTasksAsync(CancellationToken stoppingToken)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var context = scope.ServiceProvider.GetService<IContext>();
+            if (context == null)
+            {
+                return;
+            }
+
+            var orphans = await context.TranslationTasks
+                .Where(t => t.Status == TranslationTaskStatus.Processing && !t.IsDeleted)
+                .ToListAsync(stoppingToken);
+            if (orphans.Count == 0)
+            {
+                return;
+            }
+
+            foreach (var task in orphans)
+            {
+                task.Status = TranslationTaskStatus.Pending;
+                task.UpdateTimestamp();
+            }
+
+            await context.SaveChangesAsync(stoppingToken);
+            _logger.LogWarning(
+                "回收 {Count} 个孤儿翻译任务（Processing→Pending）：{TaskIds}",
+                orphans.Count, string.Join(", ", orphans.Select(t => t.Id)));
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // 回收失败不阻塞 worker 启动
+            _logger.LogError(ex, "孤儿翻译任务回收失败");
         }
     }
 

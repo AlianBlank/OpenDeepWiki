@@ -152,6 +152,8 @@ public class TranslationService : ITranslationService
 
         task.Status = TranslationTaskStatus.Completed;
         task.CompletedAt = DateTime.UtcNow;
+        // 清掉此前失败重试留下的错误信息，避免"已完成却带错误"的误导状态
+        task.ErrorMessage = null;
         task.UpdateTimestamp();
 
         await _context.SaveChangesAsync(cancellationToken);
