@@ -64,18 +64,25 @@ namespace OpenDeepWiki.Agents
 
         /// <summary>
         /// Creates an HttpClient with the full handler chain:
-        ///   FinishReasonNormalizingHandler -> LoggingHttpHandler -> HttpClientHandler
+        ///   FinishReasonNormalizingHandler -> ServerToolUsageNormalizingHandler ->
+        ///   LoggingHttpHandler -> HttpClientHandler
         ///
         /// FinishReasonNormalizingHandler is outermost so it transforms the SSE response
         /// AFTER LoggingHttpHandler's retry logic has delivered the final response.
         /// This ensures Gemini's non-OpenAI finish_reason values (STOP, MAX_TOKENS,
         /// SAFETY, etc.) are mapped to the OpenAI SDK's expected set before deserialization.
+        ///
+        /// ServerToolUsageNormalizingHandler appends missing required fields to the
+        /// server_tool_usage objects emitted by Anthropic-compatible endpoints. Both
+        /// normalizers sit outside LoggingHttpHandler so its logs capture the endpoint's
+        /// original response bytes.
         /// </summary>
         private static HttpClient CreateHttpClient()
         {
             var handler = new FinishReasonNormalizingHandler(
-                new LoggingHttpHandler(
-                    new HttpClientHandler()));
+                new ServerToolUsageNormalizingHandler(
+                    new LoggingHttpHandler(
+                        new HttpClientHandler())));
             return new HttpClient(handler)
             {
                 Timeout = TimeSpan.FromSeconds(300)
