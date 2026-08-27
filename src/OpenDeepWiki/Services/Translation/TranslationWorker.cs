@@ -86,7 +86,10 @@ public class TranslationWorker : BackgroundService
         var wikiGenerator = scope.ServiceProvider.GetService<IWikiGenerator>();
         var processingLogService = scope.ServiceProvider.GetService<IProcessingLogService>();
         var skillMarkdownBuilder = scope.ServiceProvider.GetService<IRepositorySkillMarkdownBuilder>();
-        var wikiOptions = scope.ServiceProvider.GetService<IOptions<WikiGeneratorOptions>>()?.Value;
+        // 必须取 IOptionsMonitor：IOptions<>.Value 与 CurrentValue 是两个实例（OptionsManager
+        // 私有缓存 vs 共享缓存），启动时的 DB 设置应用与 Admin 热刷新都只改 monitor 实例，
+        // 读 IOptions 会永远停留在 env 绑定值（WIKI_LANGUAGES 改 DB 不生效的根因）
+        var wikiOptions = scope.ServiceProvider.GetService<IOptionsMonitor<WikiGeneratorOptions>>()?.CurrentValue;
         var rspressExporter = scope.ServiceProvider.GetService<IRspressDocsExporter>();
 
         if (translationService == null || context == null || repositoryAnalyzer == null ||
