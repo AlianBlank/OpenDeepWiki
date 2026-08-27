@@ -2072,6 +2072,16 @@ Source grounding:
 
             await _context.SaveChangesAsync(cancellationToken);
 
+            // 零产出守卫：文档全部翻译失败（典型：配额/网络整晚批量失败）时不能标 Completed，
+            // 否则空骨架会被自动导出成占位页（2026-08-25/26 一晚落下 ~380 个占位文件）。
+            // 抛错走任务 MaxRetry 重试；部分失败仍正常完成（重跑时幂等复用就地补齐）。
+            if (translationTasks.Count > 0 && failedCount >= translationTasks.Count)
+            {
+                throw new InvalidOperationException(
+                    $"All {translationTasks.Count} document translations failed " +
+                    $"({sourceBranchLanguage.LanguageCode} -> {targetLanguageCode})");
+            }
+
             stopwatch.Stop();
             _logger.LogInformation(
                 "Wiki translation completed. Repository: {Org}/{Repo}, TargetLanguage: {TargetLang}, Success: {Success}, Failed: {Failed}, Duration: {Duration}ms",
